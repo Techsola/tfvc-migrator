@@ -21,6 +21,8 @@ namespace TfvcMigrator
         public int CreationChangeset { get; }
         public string Path { get; }
 
+        public bool IsOrContains(string path) => PathUtils.IsOrContains(Path, path);
+
         public bool Contains(string path)
         {
             return path.Length > Path.Length + 1

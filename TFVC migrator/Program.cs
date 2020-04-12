@@ -20,7 +20,7 @@ namespace TfvcMigrator
 
         public static async Task Main(Uri collectionBaseUrl, string sourcePath)
         {
-            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath, maxChangesetId: 5342);
+            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath, maxChangesetId: 7422);
 
             var operations = new List<BranchingOperation>();
 
@@ -39,9 +39,24 @@ namespace TfvcMigrator
 
                 foreach (var change in changes)
                 {
-                    if (change.ChangeType.HasFlag(VersionControlChangeType.Delete)
-                        && currentBranchPaths.Remove(change.Item.Path))
+                    if (change.ChangeType.HasFlag(VersionControlChangeType.Rename) && currentBranchPaths.Remove(change.SourceServerItem))
                     {
+                        if (change.ChangeType != VersionControlChangeType.Rename)
+                            throw new NotImplementedException("Poorly-understood combination");
+
+                        branchIdentifier.Rename(change.Item.ChangesetVersion, change.SourceServerItem, change.Item.Path, out var oldIdentity);
+                        operations.Add(new RenameOperation(oldIdentity, new BranchIdentity(change.Item.ChangesetVersion, change.Item.Path)));
+                        currentBranchPaths.Add(change.Item.Path);
+                    }
+                }
+
+                foreach (var change in changes)
+                {
+                    if (change.ChangeType.HasFlag(VersionControlChangeType.Delete) && currentBranchPaths.Remove(change.Item.Path))
+                    {
+                        if (change.ChangeType != VersionControlChangeType.Delete)
+                            throw new NotImplementedException("Poorly-understood combination");
+
                         var deletedBranch = branchIdentifier.Delete(change.Item.ChangesetVersion, change.Item.Path);
                         operations.Add(new DeleteOperation(change.Item.ChangesetVersion, deletedBranch));
                     }
@@ -104,10 +119,7 @@ namespace TfvcMigrator
 
             foreach (var change in changes)
             {
-                if (!(change.MergeSources?.SingleOrDefault() is { } source)) continue;
-
-                if (!source.IsRename && (change.ChangeType & (VersionControlChangeType.Rename | VersionControlChangeType.SourceRename | VersionControlChangeType.TargetRename)) != 0)
-                    throw new NotImplementedException();
+                if (!(change.MergeSources?.SingleOrDefault(s => !s.IsRename) is { } source)) continue;
 
                 if (!(branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem) is { } sourceBranch))
                 {
@@ -117,24 +129,21 @@ namespace TfvcMigrator
 
                 var (sourcePath, targetPath) = RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
 
-                if (!source.IsRename || sourceBranch.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))
+                if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
                 {
-                    if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
+                    if (!(branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path) is { } targetBranch))
                     {
-                        if (!(branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path) is { } targetBranch))
-                        {
-                            throw new NotImplementedException();
-                        }
+                        throw new NotImplementedException();
+                    }
 
-                        merges.Add(new MergeOperation(change.Item.ChangesetVersion, sourceBranch, sourcePath, targetBranch, targetPath));
-                    }
-                    else
-                    {
-                        branches.Add(new BranchCreationOperation(
-                            sourceBranch,
-                            sourcePath,
-                            newBranch: new BranchIdentity(change.Item.ChangesetVersion, targetPath)));
-                    }
+                    merges.Add(new MergeOperation(change.Item.ChangesetVersion, sourceBranch, sourcePath, targetBranch, targetPath));
+                }
+                else
+                {
+                    branches.Add(new BranchCreationOperation(
+                        sourceBranch,
+                        sourcePath,
+                        newBranch: new BranchIdentity(change.Item.ChangesetVersion, targetPath)));
                 }
             }
 
