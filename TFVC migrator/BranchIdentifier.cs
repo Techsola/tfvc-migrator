@@ -57,7 +57,7 @@ namespace TfvcMigrator
             maxKnownChangesetId = newBranch.CreationChangeset - 1;
         }
 
-        public void Delete(int deleteChangeset, string branchPath)
+        public BranchIdentity Delete(int deleteChangeset, string branchPath)
         {
             if (deleteChangeset <= maxKnownChangesetId)
                 throw new ArgumentOutOfRangeException(nameof(deleteChangeset), deleteChangeset, "Operations must be performed in order.");
@@ -66,9 +66,11 @@ namespace TfvcMigrator
             if (index == -1)
                 throw new InvalidOperationException($"No branch exists with the root path {branchPath} right before CS{deleteChangeset}.");
 
-            branchesByDescendingSpecificity[index] = (branchesByDescendingSpecificity[index].Identity, deleteChangeset);
+            var identity = branchesByDescendingSpecificity[index].Identity;
+            branchesByDescendingSpecificity[index] = (identity, deleteChangeset);
 
             maxKnownChangesetId = deleteChangeset - 1;
+            return identity;
         }
     }
 }

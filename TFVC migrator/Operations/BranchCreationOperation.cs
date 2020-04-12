@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Diagnostics;
 
-namespace TfvcMigrator
+namespace TfvcMigrator.Operations
 {
     [DebuggerDisplay("{ToString(),nq}")]
-    public readonly struct BranchOperation : IEquatable<BranchOperation>
+    public sealed class BranchCreationOperation : BranchingOperation, IEquatable<BranchCreationOperation>
     {
-        public BranchOperation(BranchIdentity sourceBranch, BranchIdentity newBranch)
+        public BranchCreationOperation(BranchIdentity sourceBranch, BranchIdentity newBranch)
         {
             SourceBranch = sourceBranch;
             NewBranch = newBranch;
@@ -19,10 +19,10 @@ namespace TfvcMigrator
 
         public override bool Equals(object? obj)
         {
-            return obj is BranchOperation operation && Equals(operation);
+            return obj is BranchCreationOperation operation && Equals(operation);
         }
 
-        public bool Equals(BranchOperation other)
+        public bool Equals(BranchCreationOperation other)
         {
             return SourceBranch.Equals(other.SourceBranch) &&
                    NewBranch.Equals(other.NewBranch);

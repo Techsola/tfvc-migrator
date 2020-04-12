@@ -7,6 +7,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TfvcMigrator.Operations;
 
 namespace TfvcMigrator
 {
@@ -20,6 +21,8 @@ namespace TfvcMigrator
         public static async Task Main(Uri collectionBaseUrl, string sourcePath)
         {
             var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath, maxChangesetId: 5142);
+
+            var operations = new List<BranchingOperation>();
 
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
                 change.Item.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase));
@@ -39,7 +42,8 @@ namespace TfvcMigrator
                     if (change.ChangeType.HasFlag(VersionControlChangeType.Delete)
                         && currentBranchPaths.Remove(change.Item.Path))
                     {
-                        branchIdentifier.Delete(change.Item.ChangesetVersion, change.Item.Path);
+                        var deletedBranch = branchIdentifier.Delete(change.Item.ChangesetVersion, change.Item.Path);
+                        operations.Add(new DeleteOperation(deletedBranch));
                     }
                 }
 
@@ -47,6 +51,7 @@ namespace TfvcMigrator
 
                 foreach (var operation in branchOperations)
                 {
+                    operations.Add(operation);
                     branchIdentifier.Add(operation.NewBranch);
                     currentBranchPaths.Add(operation.NewBranch.Path);
                 }
@@ -86,9 +91,9 @@ namespace TfvcMigrator
                 CancellationToken.None);
         }
 
-        private static ImmutableHashSet<BranchOperation> GetBranchOperations(IReadOnlyCollection<TfvcChange> changes, BranchIdentifier branchIdentifier)
+        private static ImmutableHashSet<BranchCreationOperation> GetBranchOperations(IReadOnlyCollection<TfvcChange> changes, BranchIdentifier branchIdentifier)
         {
-            var builder = ImmutableHashSet.CreateBuilder<BranchOperation>();
+            var builder = ImmutableHashSet.CreateBuilder<BranchCreationOperation>();
 
             foreach (var change in changes)
             {
@@ -107,7 +112,7 @@ namespace TfvcMigrator
 
                 if (!source.IsRename || sourceBranch.Path.Equals(mergeSource, StringComparison.OrdinalIgnoreCase))
                 {
-                    builder.Add(new BranchOperation(sourceBranch, newBranch: new BranchIdentity(change.Item.ChangesetVersion, mergeTarget)));
+                    builder.Add(new BranchCreationOperation(sourceBranch, newBranch: new BranchIdentity(change.Item.ChangesetVersion, mergeTarget)));
                 }
             }
 
