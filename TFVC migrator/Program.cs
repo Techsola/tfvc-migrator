@@ -20,7 +20,7 @@ namespace TfvcMigrator
 
         public static async Task Main(Uri collectionBaseUrl, string sourcePath)
         {
-            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath, maxChangesetId: 5142);
+            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath, maxChangesetId: 5342);
 
             var operations = new List<BranchingOperation>();
 
@@ -47,13 +47,18 @@ namespace TfvcMigrator
                     }
                 }
 
-                var branchOperations = GetBranchOperations(changes, branchIdentifier);
+                var (branches, merges) = GetBranchAndMergeOperations(changes, branchIdentifier);
 
-                foreach (var operation in branchOperations)
+                foreach (var operation in branches)
                 {
                     operations.Add(operation);
                     branchIdentifier.Add(operation.NewBranch);
                     currentBranchPaths.Add(operation.NewBranch.Path);
+                }
+
+                foreach (var operation in merges)
+                {
+                    operations.Add(operation);
                 }
             }
         }
@@ -91,13 +96,15 @@ namespace TfvcMigrator
                 CancellationToken.None);
         }
 
-        private static ImmutableHashSet<BranchCreationOperation> GetBranchOperations(IReadOnlyCollection<TfvcChange> changes, BranchIdentifier branchIdentifier)
+        private static (ImmutableHashSet<BranchCreationOperation> Branches, ImmutableHashSet<MergeOperation> Merges)
+            GetBranchAndMergeOperations(IReadOnlyCollection<TfvcChange> changes, BranchIdentifier branchIdentifier)
         {
-            var builder = ImmutableHashSet.CreateBuilder<BranchCreationOperation>();
+            var branches = ImmutableHashSet.CreateBuilder<BranchCreationOperation>();
+            var merges = ImmutableHashSet.CreateBuilder<MergeOperation>();
 
             foreach (var change in changes)
             {
-                if (!(change.MergeSources?.Single() is { } source)) continue;
+                if (!(change.MergeSources?.SingleOrDefault() is { } source)) continue;
 
                 if (!source.IsRename && (change.ChangeType & (VersionControlChangeType.Rename | VersionControlChangeType.SourceRename | VersionControlChangeType.TargetRename)) != 0)
                     throw new NotImplementedException();
@@ -108,15 +115,30 @@ namespace TfvcMigrator
                     throw new NotImplementedException();
                 }
 
-                var (mergeSource, mergeTarget) = RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
+                var (sourcePath, targetPath) = RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
 
-                if (!source.IsRename || sourceBranch.Path.Equals(mergeSource, StringComparison.OrdinalIgnoreCase))
+                if (!source.IsRename || sourceBranch.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))
                 {
-                    builder.Add(new BranchCreationOperation(sourceBranch, newBranch: new BranchIdentity(change.Item.ChangesetVersion, mergeTarget)));
+                    if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
+                    {
+                        if (!(branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path) is { } targetBranch))
+                        {
+                            throw new NotImplementedException();
+                        }
+
+                        merges.Add(new MergeOperation(sourceBranch, sourcePath, targetBranch, targetPath));
+                    }
+                    else
+                    {
+                        branches.Add(new BranchCreationOperation(
+                            sourceBranch,
+                            sourcePath,
+                            newBranch: new BranchIdentity(change.Item.ChangesetVersion, targetPath)));
+                    }
                 }
             }
 
-            return builder.ToImmutable();
+            return (branches.ToImmutable(), merges.ToImmutable());
         }
 
         private static (string SourcePath, string TargetPath) RemoveCommonTrailingSegments(

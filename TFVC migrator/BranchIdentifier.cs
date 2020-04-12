@@ -48,7 +48,7 @@ namespace TfvcMigrator
                 throw new ArgumentException($"A branch already exists with the root path {newBranch.Path} right before CS{newBranch.CreationChangeset}.", nameof(newBranch));
             }
 
-            var firstContainingBranchIndex = branchesByDescendingSpecificity.FindIndex(b => b.Identity.Path.Contains(newBranch.Path));
+            var firstContainingBranchIndex = branchesByDescendingSpecificity.FindIndex(b => b.Identity.Contains(newBranch.Path));
 
             branchesByDescendingSpecificity.Insert(
                 firstContainingBranchIndex != -1 ? firstContainingBranchIndex : branchesByDescendingSpecificity.Count,
