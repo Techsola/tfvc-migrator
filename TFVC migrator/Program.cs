@@ -20,7 +20,7 @@ namespace TfvcMigrator
 
         public static async Task Main(Uri collectionBaseUrl, string sourcePath)
         {
-            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath, maxChangesetId: 7422);
+            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath);
 
             var operations = new List<BranchingOperation>();
 
@@ -121,20 +121,15 @@ namespace TfvcMigrator
             {
                 if (!(change.MergeSources?.SingleOrDefault(s => !s.IsRename) is { } source)) continue;
 
-                if (!(branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem) is { } sourceBranch))
-                {
-                    if (source.IsRename) continue;
-                    throw new NotImplementedException();
-                }
+                var sourceBranch = branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem)
+                    ?? throw new NotImplementedException();
 
                 var (sourcePath, targetPath) = RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
 
                 if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
                 {
-                    if (!(branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path) is { } targetBranch))
-                    {
-                        throw new NotImplementedException();
-                    }
+                    var targetBranch = branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path)
+                        ?? throw new NotImplementedException();
 
                     merges.Add(new MergeOperation(change.Item.ChangesetVersion, sourceBranch, sourcePath, targetBranch, targetPath));
                 }
