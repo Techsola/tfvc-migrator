@@ -43,7 +43,7 @@ namespace TfvcMigrator
                         && currentBranchPaths.Remove(change.Item.Path))
                     {
                         var deletedBranch = branchIdentifier.Delete(change.Item.ChangesetVersion, change.Item.Path);
-                        operations.Add(new DeleteOperation(deletedBranch));
+                        operations.Add(new DeleteOperation(change.Item.ChangesetVersion, deletedBranch));
                     }
                 }
 
@@ -126,7 +126,7 @@ namespace TfvcMigrator
                             throw new NotImplementedException();
                         }
 
-                        merges.Add(new MergeOperation(sourceBranch, sourcePath, targetBranch, targetPath));
+                        merges.Add(new MergeOperation(change.Item.ChangesetVersion, sourceBranch, sourcePath, targetBranch, targetPath));
                     }
                     else
                     {

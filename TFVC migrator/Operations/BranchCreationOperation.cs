@@ -16,11 +16,12 @@ namespace TfvcMigrator.Operations
             NewBranch = newBranch;
         }
 
+        public override int Changeset => NewBranch.CreationChangeset;
         public BranchIdentity SourceBranch { get; }
         public string SourceBranchPath { get; }
         public BranchIdentity NewBranch { get; }
 
-        public override string ToString() => $"{SourceBranchPath} ⤞ {NewBranch}";
+        public override string ToString() => $"CS{Changeset}: Branch {SourceBranchPath} to {NewBranch.Path}";
 
         public override bool Equals(object? obj)
         {
