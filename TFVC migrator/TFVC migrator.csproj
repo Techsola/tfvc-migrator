@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.153.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.20158.1" />
   </ItemGroup>
 
 </Project>

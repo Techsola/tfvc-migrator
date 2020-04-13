@@ -4,6 +4,9 @@ using Microsoft.VisualStudio.Services.WebApi;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.CommandLine;
+using System.CommandLine.Invocation;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,34 +16,63 @@ namespace TfvcMigrator
 {
     public static class Program
     {
-        public static async Task Main(string[] args)
+        public static Task Main(string[] args)
         {
-            await MigrateAsync(new MigrationOptions(
-                collectionBaseUrl: new Uri(args[0]),
-                rootSourcePath: args[1])
+            var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
             {
-                RootPathChanges =
+                new Argument<Uri>("project-collection-url") { Description = "The URL of the Azure DevOps project collection." },
+                new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." },
+                new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
+                new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." },
+                new Option<ImmutableArray<RootPathChange>>(
+                    "--root-path-changes",
+                    parseArgument: result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray())
                 {
-                    new RootPathChange(changeset: 5322, newSourceRootPath: "$/Exactis/Root"),
-                }
-            });
+                    Argument = { Arity = ArgumentArity.OneOrMore },
+                    Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset."
+                },
+            };
+
+            command.Handler = CommandHandler.Create(
+                new Func<Uri, string, int?, int?, ImmutableArray<RootPathChange>, Task>(MigrateAsync));
+
+            return command.InvokeAsync(args);
         }
 
-        public static async Task MigrateAsync(MigrationOptions options)
+        private static RootPathChange ParseRootPathChange(string token)
         {
-            var changesByChangeset = await DownloadChangesAsync(
-                options.CollectionBaseUrl,
-                options.RootSourcePath,
-                options.MinChangeset,
-                options.MaxChangeset);
+            var colonIndex = token.IndexOf(':');
+            if (colonIndex == -1)
+                throw new ArgumentException("Expected a colon in the argument to --root-path-change.", nameof(token));
 
-            var currentRootPath = options.RootSourcePath;
-            var rootPathChanges = new Stack<RootPathChange>(options.RootPathChanges.OrderByDescending(c => c.Changeset));
-            if (rootPathChanges.Zip(rootPathChanges.Skip(1)).Any(pair => pair.First.Changeset == pair.Second.Changeset))
-                throw new ArgumentException("There is more than one root path change for the same changeset.", nameof(options));
+            var changesetSpan = token.AsSpan(0, colonIndex);
+            if (changesetSpan.StartsWith("CS", StringComparison.OrdinalIgnoreCase))
+                changesetSpan = changesetSpan["CS".Length..];
+
+            if (!int.TryParse(changesetSpan, NumberStyles.None, CultureInfo.CurrentCulture, out var changeset))
+                throw new ArgumentException("Expected a valid changeset number before the colon.", nameof(token));
+
+            return new RootPathChange(changeset, token[(colonIndex + 1)..]);
+        }
+
+        public static async Task MigrateAsync(
+            Uri projectCollectionUrl,
+            string rootPath,
+            int? minChangeset = null,
+            int? maxChangeset = null,
+            ImmutableArray<RootPathChange> rootPathChanges = default)
+        {
+            if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
+
+            var changesByChangeset = await DownloadChangesAsync(projectCollectionUrl, rootPath, minChangeset, maxChangeset);
+
+            var rootPathChangeStack = new Stack<RootPathChange>(rootPathChanges.OrderByDescending(c => c.Changeset));
+            if (rootPathChangeStack.Zip(rootPathChangeStack.Skip(1)).Any(pair => pair.First.Changeset == pair.Second.Changeset))
+                throw new ArgumentException("There is more than one root path change for the same changeset.", nameof(rootPathChanges));
 
             var operations = new List<BranchingOperation>();
 
+            var currentRootPath = rootPath;
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
                 change.Item.Path.Equals(currentRootPath, StringComparison.OrdinalIgnoreCase));
 
@@ -54,14 +86,14 @@ namespace TfvcMigrator
             {
                 var changeset = changes[0].Item.ChangesetVersion;
 
-                if (rootPathChanges.TryPeek(out var nextRootPathChange))
+                if (rootPathChangeStack.TryPeek(out var nextRootPathChange))
                 {
                     if (nextRootPathChange.Changeset < changeset)
                         throw new NotImplementedException("Move root path outside the original root path");
 
                     if (nextRootPathChange.Changeset == changeset)
                     {
-                        rootPathChanges.Pop();
+                        rootPathChangeStack.Pop();
                         if (!currentBranchPaths.Remove(currentRootPath)) throw new NotImplementedException();
 
                         branchIdentifier.Rename(changeset, currentRootPath, nextRootPathChange.NewSourceRootPath, out var oldIdentity);
