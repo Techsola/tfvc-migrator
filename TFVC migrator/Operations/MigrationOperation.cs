@@ -1,6 +1,6 @@
 ﻿namespace TfvcMigrator.Operations
 {
-    public abstract class BranchingOperation
+    public abstract class MigrationOperation
     {
         public abstract int Changeset { get; }
 

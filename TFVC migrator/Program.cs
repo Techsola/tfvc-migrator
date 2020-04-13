@@ -70,7 +70,7 @@ namespace TfvcMigrator
             if (rootPathChangeStack.Zip(rootPathChangeStack.Skip(1)).Any(pair => pair.First.Changeset == pair.Second.Changeset))
                 throw new ArgumentException("There is more than one root path change for the same changeset.", nameof(rootPathChanges));
 
-            var operations = new List<BranchingOperation>();
+            var operations = new List<MigrationOperation>();
 
             var currentRootPath = rootPath;
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
@@ -185,10 +185,10 @@ namespace TfvcMigrator
                 CancellationToken.None);
         }
 
-        private static (ImmutableHashSet<BranchCreationOperation> Branches, ImmutableHashSet<MergeOperation> Merges)
+        private static (ImmutableHashSet<BranchOperation> Branches, ImmutableHashSet<MergeOperation> Merges)
             GetBranchAndMergeOperations(IReadOnlyCollection<TfvcChange> changes, BranchIdentifier branchIdentifier)
         {
-            var branches = ImmutableHashSet.CreateBuilder<BranchCreationOperation>();
+            var branches = ImmutableHashSet.CreateBuilder<BranchOperation>();
             var merges = ImmutableHashSet.CreateBuilder<MergeOperation>();
 
             foreach (var change in changes)
@@ -209,7 +209,7 @@ namespace TfvcMigrator
                 }
                 else
                 {
-                    branches.Add(new BranchCreationOperation(
+                    branches.Add(new BranchOperation(
                         sourceBranch,
                         sourcePath,
                         newBranch: new BranchIdentity(change.Item.ChangesetVersion, targetPath)));

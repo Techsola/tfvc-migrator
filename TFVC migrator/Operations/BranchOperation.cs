@@ -4,9 +4,9 @@ using System.Diagnostics;
 namespace TfvcMigrator.Operations
 {
     [DebuggerDisplay("{ToString(),nq}")]
-    public sealed class BranchCreationOperation : BranchingOperation, IEquatable<BranchCreationOperation?>
+    public sealed class BranchOperation : MigrationOperation, IEquatable<BranchOperation?>
     {
-        public BranchCreationOperation(BranchIdentity sourceBranch, string sourceBranchPath, BranchIdentity newBranch)
+        public BranchOperation(BranchIdentity sourceBranch, string sourceBranchPath, BranchIdentity newBranch)
         {
             if (!PathUtils.IsOrContains(sourceBranch.Path, sourceBranchPath))
                 throw new ArgumentException("The source branch path must be the same as or nested within the source branch identity path.");
@@ -25,10 +25,10 @@ namespace TfvcMigrator.Operations
 
         public override bool Equals(object? obj)
         {
-            return Equals(obj as BranchCreationOperation);
+            return Equals(obj as BranchOperation);
         }
 
-        public bool Equals(BranchCreationOperation? other)
+        public bool Equals(BranchOperation? other)
         {
             return other != null &&
                    SourceBranch.Equals(other.SourceBranch) &&

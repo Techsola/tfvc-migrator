@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace TfvcMigrator.Operations
 {
     [DebuggerDisplay("{ToString(),nq}")]
-    public sealed class RenameOperation : BranchingOperation, IEquatable<RenameOperation?>
+    public sealed class RenameOperation : MigrationOperation, IEquatable<RenameOperation?>
     {
         public RenameOperation(BranchIdentity oldIdentity, BranchIdentity newIdentity)
         {

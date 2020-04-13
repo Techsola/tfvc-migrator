@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace TfvcMigrator.Operations
 {
     [DebuggerDisplay("{ToString(),nq}")]
-    public sealed class MergeOperation : BranchingOperation, IEquatable<MergeOperation?>
+    public sealed class MergeOperation : MigrationOperation, IEquatable<MergeOperation?>
     {
         public MergeOperation(int changeset, BranchIdentity sourceBranch, string sourceBranchPath, BranchIdentity targetBranch, string targetBranchPath)
         {

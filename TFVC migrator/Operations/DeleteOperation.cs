@@ -4,7 +4,7 @@ using System.Diagnostics;
 namespace TfvcMigrator.Operations
 {
     [DebuggerDisplay("{ToString(),nq}")]
-    public sealed class DeleteOperation : BranchingOperation, IEquatable<DeleteOperation?>
+    public sealed class DeleteOperation : MigrationOperation, IEquatable<DeleteOperation?>
     {
         public DeleteOperation(int changeset, BranchIdentity branch)
         {
