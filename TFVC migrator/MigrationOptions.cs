@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace TfvcMigrator
 {
@@ -6,7 +7,7 @@ namespace TfvcMigrator
     {
         public MigrationOptions(Uri collectionBaseUrl, string rootSourcePath)
         {
-            if (!rootSourcePath.StartsWith("$/", StringComparison.Ordinal))
+            if (!PathUtils.IsAbsolute(rootSourcePath))
                 throw new ArgumentException("An absolute root source path must be specified.", nameof(rootSourcePath));
 
             CollectionBaseUrl = collectionBaseUrl ?? throw new ArgumentNullException(nameof(collectionBaseUrl));
@@ -33,5 +34,7 @@ namespace TfvcMigrator
                 ? throw new ArgumentOutOfRangeException(nameof(value), value, "The maximum changeset must be null or greater than zero.")
                 : value;
         }
+
+        public ICollection<RootPathChange> RootPathChanges { get; } = new List<RootPathChange>();
     }
 }

@@ -17,7 +17,13 @@ namespace TfvcMigrator
         {
             await MigrateAsync(new MigrationOptions(
                 collectionBaseUrl: new Uri(args[0]),
-                rootSourcePath: args[1]));
+                rootSourcePath: args[1])
+            {
+                RootPathChanges =
+                {
+                    new RootPathChange(changeset: 5322, newSourceRootPath: "$/Exactis/Root"),
+                }
+            });
         }
 
         public static async Task MigrateAsync(MigrationOptions options)
@@ -28,20 +34,45 @@ namespace TfvcMigrator
                 options.MinChangeset,
                 options.MaxChangeset);
 
+            var currentRootPath = options.RootSourcePath;
+            var rootPathChanges = new Stack<RootPathChange>(options.RootPathChanges.OrderByDescending(c => c.Changeset));
+            if (rootPathChanges.Zip(rootPathChanges.Skip(1)).Any(pair => pair.First.Changeset == pair.Second.Changeset))
+                throw new ArgumentException("There is more than one root path change for the same changeset.", nameof(options));
+
             var operations = new List<BranchingOperation>();
 
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
-                change.Item.Path.Equals(options.RootSourcePath, StringComparison.OrdinalIgnoreCase));
+                change.Item.Path.Equals(currentRootPath, StringComparison.OrdinalIgnoreCase));
 
             var branchIdentifier = new BranchIdentifier(initialFolder: new BranchIdentity(
                 initialFolderCreationChange.Item.ChangesetVersion,
                 initialFolderCreationChange.Item.Path));
 
-            var currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentRootPath };
 
             foreach (var changes in changesByChangeset.Skip(1))
             {
-                branchIdentifier.NoFurtherChangesUpTo(changes[0].Item.ChangesetVersion - 1);
+                var changeset = changes[0].Item.ChangesetVersion;
+
+                if (rootPathChanges.TryPeek(out var nextRootPathChange))
+                {
+                    if (nextRootPathChange.Changeset < changeset)
+                        throw new NotImplementedException("Move root path outside the original root path");
+
+                    if (nextRootPathChange.Changeset == changeset)
+                    {
+                        rootPathChanges.Pop();
+                        if (!currentBranchPaths.Remove(currentRootPath)) throw new NotImplementedException();
+
+                        branchIdentifier.Rename(changeset, currentRootPath, nextRootPathChange.NewSourceRootPath, out var oldIdentity);
+                        operations.Add(new RenameOperation(oldIdentity, new BranchIdentity(changeset, nextRootPathChange.NewSourceRootPath)));
+
+                        currentRootPath = nextRootPathChange.NewSourceRootPath;
+                        currentBranchPaths.Add(currentRootPath);
+                    }
+                }
+
+                branchIdentifier.NoFurtherChangesUpTo(changeset - 1);
 
                 foreach (var change in changes)
                 {
@@ -50,8 +81,8 @@ namespace TfvcMigrator
                         if (change.ChangeType != VersionControlChangeType.Rename)
                             throw new NotImplementedException("Poorly-understood combination");
 
-                        branchIdentifier.Rename(change.Item.ChangesetVersion, change.SourceServerItem, change.Item.Path, out var oldIdentity);
-                        operations.Add(new RenameOperation(oldIdentity, new BranchIdentity(change.Item.ChangesetVersion, change.Item.Path)));
+                        branchIdentifier.Rename(changeset, change.SourceServerItem, change.Item.Path, out var oldIdentity);
+                        operations.Add(new RenameOperation(oldIdentity, new BranchIdentity(changeset, change.Item.Path)));
                         currentBranchPaths.Add(change.Item.Path);
                     }
                 }
@@ -63,8 +94,8 @@ namespace TfvcMigrator
                         if (change.ChangeType != VersionControlChangeType.Delete)
                             throw new NotImplementedException("Poorly-understood combination");
 
-                        var deletedBranch = branchIdentifier.Delete(change.Item.ChangesetVersion, change.Item.Path);
-                        operations.Add(new DeleteOperation(change.Item.ChangesetVersion, deletedBranch));
+                        var deletedBranch = branchIdentifier.Delete(changeset, change.Item.Path);
+                        operations.Add(new DeleteOperation(changeset, deletedBranch));
                     }
                 }
 

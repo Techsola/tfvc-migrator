@@ -4,6 +4,11 @@ namespace TfvcMigrator
 {
     internal static class PathUtils
     {
+        public static bool IsAbsolute(string sourcePath)
+        {
+            return sourcePath.StartsWith("$/", StringComparison.Ordinal);
+        }
+
         public static bool IsOrContains(string parentPath, string otherPath)
         {
             if (parentPath.EndsWith('/'))
