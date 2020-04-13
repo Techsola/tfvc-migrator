@@ -142,6 +142,19 @@ namespace TfvcMigrator
                 }
             }
 
+            if (merges.Count > 1)
+            {
+                // Two items is very rare and three hasn't been seen yet, so don't spare anything towards optimization.
+                merges.ExceptWith(merges
+                    .GroupBy(m => (m.SourceBranch, m.TargetBranch))
+                    .SelectMany(mergesWithSameSourceAndTargetBranch =>
+                        mergesWithSameSourceAndTargetBranch.Where(merge =>
+                            mergesWithSameSourceAndTargetBranch.Any(otherMerge =>
+                                otherMerge != merge
+                                && PathUtils.IsOrContains(otherMerge.SourceBranchPath, merge.SourceBranchPath)
+                                && PathUtils.IsOrContains(otherMerge.TargetBranchPath, merge.TargetBranchPath)))));
+            }
+
             return (branches.ToImmutable(), merges.ToImmutable());
         }
 
