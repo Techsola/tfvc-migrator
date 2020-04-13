@@ -15,17 +15,23 @@ namespace TfvcMigrator
     {
         public static async Task Main(string[] args)
         {
-            await Main(collectionBaseUrl: new Uri(args[0]), sourcePath: args[1]);
+            await MigrateAsync(new MigrationOptions(
+                collectionBaseUrl: new Uri(args[0]),
+                rootSourcePath: args[1]));
         }
 
-        public static async Task Main(Uri collectionBaseUrl, string sourcePath)
+        public static async Task MigrateAsync(MigrationOptions options)
         {
-            var changesByChangeset = await DownloadChangesAsync(collectionBaseUrl, sourcePath);
+            var changesByChangeset = await DownloadChangesAsync(
+                options.CollectionBaseUrl,
+                options.RootSourcePath,
+                options.MinChangeset,
+                options.MaxChangeset);
 
             var operations = new List<BranchingOperation>();
 
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
-                change.Item.Path.Equals(sourcePath, StringComparison.OrdinalIgnoreCase));
+                change.Item.Path.Equals(options.RootSourcePath, StringComparison.OrdinalIgnoreCase));
 
             var branchIdentifier = new BranchIdentifier(initialFolder: new BranchIdentity(
                 initialFolderCreationChange.Item.ChangesetVersion,
@@ -78,7 +84,11 @@ namespace TfvcMigrator
             }
         }
 
-        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(Uri collectionBaseUrl, string sourcePath, int? maxChangesetId = null)
+        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(
+            Uri collectionBaseUrl,
+            string sourcePath,
+            int? minChangeset,
+            int? maxChangeset)
         {
             using var connection = new VssConnection(collectionBaseUrl, new VssCredentials());
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
@@ -91,7 +101,8 @@ namespace TfvcMigrator
                 {
                     FollowRenames = true,
                     ItemPath = sourcePath,
-                    ToId = maxChangesetId ?? 0,
+                    FromId = minChangeset ?? 0,
+                    ToId = maxChangeset ?? 0,
                 }).ConfigureAwait(false);
 
             var changesetsDownloaded = 0;
