@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Diagnostics;
 
 namespace TfvcMigrator
 {
+    [DebuggerDisplay("{ToString(),nq}")]
     public sealed class RootPathChange
     {
         public RootPathChange(int changeset, string newSourceRootPath)
@@ -18,5 +20,7 @@ namespace TfvcMigrator
 
         public int Changeset { get; }
         public string NewSourceRootPath { get; }
+
+        public override string ToString() => $"CS{Changeset}:{NewSourceRootPath}";
     }
 }
