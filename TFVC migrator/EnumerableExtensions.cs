@@ -31,5 +31,15 @@ namespace TfvcMigrator
         {
             return source.Where(predicate).FirstOrNull();
         }
+
+        public static IEnumerable<T> Values<T>(this IEnumerable<T?> source)
+            where T : struct
+        {
+            foreach (var value in source)
+            {
+                if (value is { } unwrapped)
+                    yield return unwrapped;
+            }
+        }
     }
 }

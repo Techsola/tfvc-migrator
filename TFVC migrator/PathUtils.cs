@@ -22,6 +22,23 @@ namespace TfvcMigrator
                 : otherPath.Equals(parentPath, StringComparison.OrdinalIgnoreCase);
         }
 
+        public static string ReplaceContainingPath(string path, string containingPath, string newContainingPath)
+        {
+            if (path.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(path));
+
+            if (containingPath.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(containingPath));
+
+            if (newContainingPath.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(newContainingPath));
+
+            if (!IsOrContains(containingPath, path))
+                throw new ArgumentException("The specified containing path does not contain the specified path.");
+
+            return newContainingPath + path.Substring(containingPath.Length);
+        }
+
         public static (string SourcePath, string TargetPath) RemoveCommonTrailingSegments(
             ReadOnlySpan<char> sourcePath,
             ReadOnlySpan<char> targetPath)

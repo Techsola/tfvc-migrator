@@ -76,11 +76,13 @@ namespace TfvcMigrator
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
                 change.Item.Path.Equals(currentRootPath, StringComparison.OrdinalIgnoreCase));
 
-            var branchIdentifier = new BranchIdentifier(initialFolder: new BranchIdentity(
+            var initialBranchIdentity = new BranchIdentity(
                 initialFolderCreationChange.Item.ChangesetVersion,
-                initialFolderCreationChange.Item.Path));
+                initialFolderCreationChange.Item.Path);
+            var branchIdentifier = new BranchIdentifier(initialBranchIdentity);
 
             var currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentRootPath };
+            var mappedRootPathsByBranch = new Dictionary<BranchIdentity, string> { [initialBranchIdentity] = currentRootPath };
 
             foreach (var changes in changesByChangeset.Skip(1))
             {
@@ -96,11 +98,15 @@ namespace TfvcMigrator
                         rootPathChangeStack.Pop();
                         if (!currentBranchPaths.Remove(currentRootPath)) throw new NotImplementedException();
 
+                        var newIdentity = new BranchIdentity(changeset, nextRootPathChange.NewSourceRootPath);
                         branchIdentifier.Rename(changeset, currentRootPath, nextRootPathChange.NewSourceRootPath, out var oldIdentity);
-                        operations.Add(new RenameOperation(oldIdentity, new BranchIdentity(changeset, nextRootPathChange.NewSourceRootPath)));
+                        operations.Add(new RenameOperation(oldIdentity, newIdentity));
 
                         currentRootPath = nextRootPathChange.NewSourceRootPath;
                         currentBranchPaths.Add(currentRootPath);
+
+                        AddRootPathMapping(newIdentity, oldIdentity);
+                        mappedRootPathsByBranch.Remove(oldIdentity);
                     }
                 }
 
@@ -113,9 +119,13 @@ namespace TfvcMigrator
                         if (change.ChangeType != VersionControlChangeType.Rename)
                             throw new NotImplementedException("Poorly-understood combination");
 
+                        var newIdentity = new BranchIdentity(changeset, change.Item.Path);
                         branchIdentifier.Rename(changeset, change.SourceServerItem, change.Item.Path, out var oldIdentity);
-                        operations.Add(new RenameOperation(oldIdentity, new BranchIdentity(changeset, change.Item.Path)));
+                        operations.Add(new RenameOperation(oldIdentity, newIdentity));
                         currentBranchPaths.Add(change.Item.Path);
+
+                        AddRootPathMapping(newIdentity, oldIdentity);
+                        mappedRootPathsByBranch.Remove(oldIdentity);
                     }
                 }
 
@@ -128,6 +138,7 @@ namespace TfvcMigrator
 
                         var deletedBranch = branchIdentifier.Delete(changeset, change.Item.Path);
                         operations.Add(new DeleteOperation(changeset, deletedBranch));
+                        mappedRootPathsByBranch.Remove(deletedBranch);
                     }
                 }
 
@@ -138,12 +149,28 @@ namespace TfvcMigrator
                     operations.Add(operation);
                     branchIdentifier.Add(operation.NewBranch);
                     currentBranchPaths.Add(operation.NewBranch.Path);
+
+                    AddRootPathMapping(operation.NewBranch, operation.SourceBranch);
                 }
 
                 foreach (var operation in merges)
                 {
                     operations.Add(operation);
                 }
+
+                operations.AddRange(
+                    from mappedRootPathByBranch in mappedRootPathsByBranch
+                    where changes.Any(change => PathUtils.IsOrContains(mappedRootPathByBranch.Value, change.Item.Path))
+                    select new UpdateContentsOperation(changeset, mappedRootPathByBranch.Key));
+            }
+
+            void AddRootPathMapping(BranchIdentity newIdentity, BranchIdentity oldIdentity)
+            {
+                var mappedRootPath = mappedRootPathsByBranch[oldIdentity];
+                if (PathUtils.IsOrContains(oldIdentity.Path, mappedRootPath))
+                    mappedRootPath = PathUtils.ReplaceContainingPath(mappedRootPath, oldIdentity.Path, newIdentity.Path);
+
+                mappedRootPathsByBranch.Add(newIdentity, mappedRootPath);
             }
         }
 
