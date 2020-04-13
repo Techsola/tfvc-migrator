@@ -110,8 +110,6 @@ namespace TfvcMigrator
                     }
                 }
 
-                branchIdentifier.NoFurtherChangesUpTo(changeset - 1);
-
                 foreach (var change in changes)
                 {
                     if (change.ChangeType.HasFlag(VersionControlChangeType.Rename) && currentBranchPaths.Remove(change.SourceServerItem))
@@ -141,6 +139,8 @@ namespace TfvcMigrator
                         mappedRootPathsByBranch.Remove(deletedBranch);
                     }
                 }
+
+                branchIdentifier.NoFurtherChangesUpTo(changeset - 1);
 
                 var (branches, merges) = GetBranchAndMergeOperations(changes, branchIdentifier);
 
