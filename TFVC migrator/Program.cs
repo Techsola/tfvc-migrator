@@ -135,7 +135,7 @@ namespace TfvcMigrator
                 var sourceBranch = branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem)
                     ?? throw new NotImplementedException();
 
-                var (sourcePath, targetPath) = RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
+                var (sourcePath, targetPath) = PathUtils.RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
 
                 if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
                 {
@@ -167,34 +167,6 @@ namespace TfvcMigrator
             }
 
             return (branches.ToImmutable(), merges.ToImmutable());
-        }
-
-        private static (string SourcePath, string TargetPath) RemoveCommonTrailingSegments(
-            ReadOnlySpan<char> sourcePath,
-            ReadOnlySpan<char> targetPath)
-        {
-            var targetLengthOffset = targetPath.Length - sourcePath.Length;
-
-            while (true)
-            {
-                var sourceSlashIndex = sourcePath.LastIndexOf('/');
-                if (sourceSlashIndex == -1) break;
-
-                if (!targetPath.EndsWith(sourcePath.Slice(sourceSlashIndex), StringComparison.OrdinalIgnoreCase))
-                {
-                    return (sourcePath.ToString(), targetPath.ToString());
-                }
-
-                sourcePath = sourcePath.Slice(0, sourceSlashIndex);
-                targetPath = targetPath.Slice(0, sourceSlashIndex + targetLengthOffset);
-            }
-
-            if (!targetPath.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))
-            {
-                return (sourcePath.ToString(), targetPath.ToString());
-            }
-
-            return (string.Empty, string.Empty);
         }
     }
 }
