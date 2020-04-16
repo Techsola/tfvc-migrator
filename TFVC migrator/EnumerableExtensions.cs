@@ -41,5 +41,22 @@ namespace TfvcMigrator
                     yield return unwrapped;
             }
         }
+
+        public static int FindSingleIndex<T>(this ImmutableArray<T> array, Func<T, bool> predicate)
+        {
+            var index = -1;
+
+            for (var i = 0; i < array.Length; i++)
+            {
+                if (!predicate(array[i])) continue;
+
+                if (index == -1)
+                    index = i;
+                else
+                    throw new InvalidOperationException("The sequence contains more than one matching element.");
+            }
+
+            return index;
+        }
     }
 }

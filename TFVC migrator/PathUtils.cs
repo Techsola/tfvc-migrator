@@ -22,6 +22,20 @@ namespace TfvcMigrator
                 : otherPath.Equals(parentPath, StringComparison.OrdinalIgnoreCase);
         }
 
+        public static bool Overlaps(string path1, string path2)
+        {
+            if (path1.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(path1));
+
+            if (path2.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(path2));
+
+            return
+                path2.Length > path1.Length + 1 ? path2[path1.Length] == '/' && path2.StartsWith(path1, StringComparison.OrdinalIgnoreCase) :
+                path1.Length > path2.Length + 1 ? path1[path2.Length] == '/' && path1.StartsWith(path2, StringComparison.OrdinalIgnoreCase) :
+                path1.Equals(path2, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static string ReplaceContainingPath(string path, string containingPath, string newContainingPath)
         {
             if (path.EndsWith('/'))
@@ -37,6 +51,20 @@ namespace TfvcMigrator
                 throw new ArgumentException("The specified containing path does not contain the specified path.");
 
             return newContainingPath + path.Substring(containingPath.Length);
+        }
+
+        public static string RemoveContainingPath(string path, string containingPath)
+        {
+            if (path.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(path));
+
+            if (containingPath.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(containingPath));
+
+            if (!IsOrContains(containingPath, path))
+                throw new ArgumentException("The specified containing path does not contain the specified path.");
+
+            return path.Substring(containingPath.Length);
         }
 
         public static (string SourcePath, string TargetPath) RemoveCommonTrailingSegments(
