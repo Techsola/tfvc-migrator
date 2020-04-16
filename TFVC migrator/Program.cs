@@ -66,11 +66,54 @@ namespace TfvcMigrator
 
             var changesByChangeset = await DownloadChangesAsync(projectCollectionUrl, rootPath, minChangeset, maxChangeset);
 
+            var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset);
+        }
+
+        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(
+            Uri collectionBaseUrl,
+            string sourcePath,
+            int? minChangeset,
+            int? maxChangeset)
+        {
+            using var connection = new VssConnection(collectionBaseUrl, new VssCredentials());
+            using var client = await connection.GetClientAsync<TfvcHttpClient>();
+
+            var changesets = await client.GetChangesetsAsync(
+                maxCommentLength: 0,
+                top: int.MaxValue,
+                orderby: "ID asc",
+                searchCriteria: new TfvcChangesetSearchCriteria
+                {
+                    FollowRenames = true,
+                    ItemPath = sourcePath,
+                    FromId = minChangeset ?? 0,
+                    ToId = maxChangeset ?? 0,
+                }).ConfigureAwait(false);
+
+            var changesetsDownloaded = 0;
+
+            return await changesets.SelectAwaitParallel(
+                async changeset =>
+                {
+                    var progress = Interlocked.Increment(ref changesetsDownloaded) - 1;
+                    Console.Write($"\rDownloading CS{changeset.ChangesetId} ({progress / (double)changesets.Count:p1})...");
+
+                    var changes = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
+                    return changes
+                        .Where(c => PathUtils.IsOrContains(sourcePath, c.Item.Path))
+                        .ToImmutableArray();
+                },
+                degreeOfParallelism: 5,
+                CancellationToken.None);
+        }
+
+        private static ImmutableArray<MigrationOperation> GetTopologicalOperations(string rootPath, ImmutableArray<RootPathChange> rootPathChanges, ImmutableArray<ImmutableArray<TfvcChange>> changesByChangeset)
+        {
             var rootPathChangeStack = new Stack<RootPathChange>(rootPathChanges.OrderByDescending(c => c.Changeset));
             if (rootPathChangeStack.Zip(rootPathChangeStack.Skip(1)).Any(pair => pair.First.Changeset == pair.Second.Changeset))
                 throw new ArgumentException("There is more than one root path change for the same changeset.", nameof(rootPathChanges));
 
-            var operations = new List<MigrationOperation>();
+            var operations = ImmutableArray.CreateBuilder<MigrationOperation>();
 
             var currentRootPath = rootPath;
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
@@ -147,44 +190,8 @@ namespace TfvcMigrator
                     operations.Add(operation);
                 }
             }
-        }
 
-        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(
-            Uri collectionBaseUrl,
-            string sourcePath,
-            int? minChangeset,
-            int? maxChangeset)
-        {
-            using var connection = new VssConnection(collectionBaseUrl, new VssCredentials());
-            using var client = await connection.GetClientAsync<TfvcHttpClient>();
-
-            var changesets = await client.GetChangesetsAsync(
-                maxCommentLength: 0,
-                top: int.MaxValue,
-                orderby: "ID asc",
-                searchCriteria: new TfvcChangesetSearchCriteria
-                {
-                    FollowRenames = true,
-                    ItemPath = sourcePath,
-                    FromId = minChangeset ?? 0,
-                    ToId = maxChangeset ?? 0,
-                }).ConfigureAwait(false);
-
-            var changesetsDownloaded = 0;
-
-            return await changesets.SelectAwaitParallel(
-                async changeset =>
-                {
-                    var progress = Interlocked.Increment(ref changesetsDownloaded) - 1;
-                    Console.Write($"\rDownloading CS{changeset.ChangesetId} ({progress / (double)changesets.Count:p1})...");
-
-                    var changes = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
-                    return changes
-                        .Where(c => PathUtils.IsOrContains(sourcePath, c.Item.Path))
-                        .ToImmutableArray();
-                },
-                degreeOfParallelism: 5,
-                CancellationToken.None);
+            return operations.ToImmutable();
         }
 
         private static (ImmutableHashSet<BranchOperation> Branches, ImmutableHashSet<MergeOperation> Merges)
