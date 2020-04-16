@@ -76,16 +76,11 @@ namespace TfvcMigrator
             var initialFolderCreationChange = changesByChangeset.First().Single(change =>
                 change.Item.Path.Equals(currentRootPath, StringComparison.OrdinalIgnoreCase));
 
-            var initialBranchIdentity = new BranchIdentity(
+            var branchIdentifier = new BranchIdentifier(new BranchIdentity(
                 initialFolderCreationChange.Item.ChangesetVersion,
-                initialFolderCreationChange.Item.Path);
-            var branchIdentifier = new BranchIdentifier(initialBranchIdentity);
+                initialFolderCreationChange.Item.Path));
 
             var currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentRootPath };
-            var mappingViewsByBranch = new Dictionary<BranchIdentity, RepositoryMappingView>
-            {
-                [initialBranchIdentity] = new RepositoryMappingView(currentRootPath),
-            };
 
             foreach (var changes in changesByChangeset.Skip(1))
             {
@@ -107,8 +102,6 @@ namespace TfvcMigrator
 
                         currentRootPath = nextRootPathChange.NewSourceRootPath;
                         currentBranchPaths.Add(currentRootPath);
-
-                        UpdateMappings(newIdentity, oldIdentity.Path, oldIdentity, removeOldIdentity: true);
                     }
                 }
 
@@ -123,8 +116,6 @@ namespace TfvcMigrator
                         branchIdentifier.Rename(changeset, change.SourceServerItem, change.Item.Path, out var oldIdentity);
                         operations.Add(new RenameOperation(oldIdentity, newIdentity));
                         currentBranchPaths.Add(change.Item.Path);
-
-                        UpdateMappings(newIdentity, oldIdentity.Path, oldIdentity, removeOldIdentity: true);
                     }
                 }
 
@@ -137,13 +128,6 @@ namespace TfvcMigrator
 
                         var deletedBranch = branchIdentifier.Delete(changeset, change.Item.Path);
                         operations.Add(new DeleteOperation(changeset, deletedBranch));
-                        mappingViewsByBranch.Remove(deletedBranch);
-
-                        // Unhide the branch folder path for all other branches.
-                        foreach (var (otherBranch, mapping) in mappingViewsByBranch.ToList())
-                        {
-                            mappingViewsByBranch[otherBranch] = mapping.RemoveDirectoryMapping(deletedBranch.Path);
-                        }
                     }
                 }
 
@@ -156,58 +140,12 @@ namespace TfvcMigrator
                     operations.Add(operation);
                     branchIdentifier.Add(operation.NewBranch);
                     currentBranchPaths.Add(operation.NewBranch.Path);
-
-                    UpdateMappings(operation.NewBranch, operation.SourceBranchPath, operation.SourceBranch, removeOldIdentity: false);
                 }
 
                 foreach (var operation in merges)
                 {
                     operations.Add(operation);
                 }
-
-                operations.AddRange(
-                    from mappedRootPathByBranch in mappingViewsByBranch
-                    where changes.Any(change => mappedRootPathByBranch.Value.GetGitRepositoryPath(change.Item.Path) is { })
-                    select new UpdateContentsOperation(changeset, mappedRootPathByBranch.Key, mappedRootPathByBranch.Value));
-            }
-
-            void UpdateMappings(BranchIdentity newIdentity, string newBranchSourcePath, BranchIdentity oldIdentity, bool removeOldIdentity)
-            {
-                // Copy source branch mapping
-                var newBranchMapping = mappingViewsByBranch[oldIdentity];
-
-                // There is a new root directory if the branching was not done in a subdirectory of the root directory.
-                if (PathUtils.IsOrContains(newBranchSourcePath, newBranchMapping.RootDirectory))
-                {
-                    newBranchMapping = newBranchMapping.WithRootDirectory(
-                        PathUtils.ReplaceContainingPath(newBranchMapping.RootDirectory, newBranchSourcePath, newIdentity.Path));
-                }
-
-                if (removeOldIdentity)
-                {
-                    mappingViewsByBranch.Remove(oldIdentity);
-                }
-                else
-                {
-                    newBranchMapping = newBranchMapping
-                        .AddDirectoryMapping(newBranchSourcePath, mappedTfvcPath: null)
-                        .AddDirectoryMapping(newIdentity.Path, newBranchSourcePath);
-                }
-
-                // Hide the new branch folder path for all other branches and hide the old branch folder path if the old
-                // branch is being removed.
-                foreach (var (otherBranch, mapping) in mappingViewsByBranch.ToList())
-                {
-                    var updatedMapping = mapping;
-
-                    if (removeOldIdentity)
-                        updatedMapping = updatedMapping.RemoveDirectoryMapping(oldIdentity.Path);
-
-                    updatedMapping = updatedMapping.AddDirectoryMapping(newIdentity.Path, mappedTfvcPath: null);
-                    mappingViewsByBranch[otherBranch] = updatedMapping;
-                }
-
-                mappingViewsByBranch.Add(newIdentity, newBranchMapping);
             }
         }
 
