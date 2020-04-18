@@ -142,15 +142,6 @@ namespace TfvcMigrator
 
             foreach (var changeset in changesets)
             {
-                var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
-                var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
-                var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
-
-                Commit CreateCommit(Tree tree, IEnumerable<Commit> parents)
-                {
-                    return repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
-                }
-
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
 
                 foreach (var operation in topologicalOperations[changeset.ChangesetId])
@@ -207,6 +198,10 @@ namespace TfvcMigrator
                     mappings.Values.Select(mapping => mapping.RootDirectory),
                     changeset.ChangesetId);
 
+                var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
+                var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
+                var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
+
                 foreach (var (branch, mapping) in mappings.ToList())
                 {
                     var builder = new TreeDefinition();
@@ -248,7 +243,7 @@ namespace TfvcMigrator
 
                     if (requireCommit || tree.Sha != firstParent?.Tree.Sha)
                     {
-                        heads[branch] = CreateCommit(tree, parents);
+                        heads[branch] = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
                     }
                 }
             }
