@@ -7,12 +7,10 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using TfvcMigrator.Operations;
 
@@ -152,7 +150,8 @@ namespace TfvcMigrator
                         {
                             case BranchOperation branch:
                             {
-                                heads.Add(branch.NewBranch, heads[branch.SourceBranch]);
+                                // Don't copy to heads here because the previous head will be removed if not null.
+                                hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: heads[branch.SourceBranch].Tip));
 
                                 var mapping = mappings[branch.SourceBranch];
 
