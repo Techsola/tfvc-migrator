@@ -138,7 +138,7 @@ namespace TfvcMigrator
                 [master] = new RepositoryBranchMapping(master.Path, subdirectoryMapping: null),
             };
 
-            var heads = new Dictionary<BranchIdentity, Commit>();
+            var heads = new Dictionary<BranchIdentity, Branch>();
 
             foreach (var changeset in changesets)
             {
@@ -165,14 +165,16 @@ namespace TfvcMigrator
 
                         case DeleteOperation delete:
                         {
-                            if (!heads.Remove(delete.Branch)) throw new NotImplementedException();
+                            if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
+                            repo.Branches.Remove(head);
+
                             if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
                             break;
                         }
 
                         case MergeOperation merge:
                         {
-                            hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch]));
+                            hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
                             break;
                         }
 
@@ -230,8 +232,8 @@ namespace TfvcMigrator
 
                     // Workaround: use .NET Core extension method rather than buggy extension method exposed by Microsoft.VisualStudio.Services.Client package.
                     // https://developercommunity.visualstudio.com/content/problem/996912/client-nuget-package-microsoftvisualstudioservices.html
-                    var firstParent = CollectionExtensions.GetValueOrDefault(heads, branch);
-                    if (firstParent is { }) parents.Add(firstParent);
+                    var head = CollectionExtensions.GetValueOrDefault(heads, branch);
+                    if (head is { }) parents.Add(head.Tip);
 
                     foreach (var (_, additionalParent) in hasTopologicalOperation.Where(t => t.Branch == branch))
                     {
@@ -241,16 +243,18 @@ namespace TfvcMigrator
 
                     var tree = repo.ObjectDatabase.CreateTree(builder);
 
-                    if (requireCommit || tree.Sha != firstParent?.Tree.Sha)
+                    if (requireCommit || tree.Sha != head?.Tip.Tree.Sha)
                     {
-                        heads[branch] = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
+                        var newBranchName = branch == master ? "master" : GetValidGitBranchName(branch.Path);
+                        var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
+
+                        // Make sure HEAD is not pointed at a branch
+                        repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
+
+                        if (head is { }) repo.Branches.Remove(head);
+                        heads[branch] = repo.Branches.Add(newBranchName, commit);
                     }
                 }
-            }
-
-            foreach (var (branch, head) in heads)
-            {
-                repo.CreateBranch(branch == master ? "master" : GetValidGitBranchName(branch.Path), head);
             }
         }
 
