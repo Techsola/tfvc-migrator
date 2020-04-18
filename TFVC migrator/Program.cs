@@ -146,12 +146,12 @@ namespace TfvcMigrator
 
                 Console.Write($"\rDownloading CS{changeset.ChangesetId} ({timedProgress.GetPercent(changesets.Count):p1}{timing})...");
 
-                var changesetChanges = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
-
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
 
                 if (changeset != changesets.First())
                 {
+                    var changesetChanges = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
+
                     foreach (var operation in topologyAnalyzer.GetTopologicalOperations(changesetChanges))
                     {
                         switch (operation)
