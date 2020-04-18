@@ -113,7 +113,7 @@ namespace TfvcMigrator
                 return;
             }
 
-            var changesByChangeset = await DownloadChangesAsync(client, rootPath, changesets);
+            var changesByChangeset = await DownloadChangesAsync(client, changesets);
 
             var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset)
                 .ToLookup(operation => operation.Changeset);
@@ -205,7 +205,7 @@ namespace TfvcMigrator
             return builder.ToImmutable();
         }
 
-        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(TfvcHttpClient client, string sourcePath, IReadOnlyCollection<TfvcChangesetRef> changesets)
+        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(TfvcHttpClient client, IReadOnlyCollection<TfvcChangesetRef> changesets)
         {
             var changesetsDownloaded = 0;
 
@@ -216,9 +216,7 @@ namespace TfvcMigrator
                     Console.Write($"\rDownloading CS{changeset.ChangesetId} ({progress / (double)changesets.Count:p1})...");
 
                     var changes = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
-                    return changes
-                        .Where(c => PathUtils.IsOrContains(sourcePath, c.Item.Path))
-                        .ToImmutableArray();
+                    return changes.ToImmutableArray();
                 },
                 degreeOfParallelism: 5,
                 CancellationToken.None);
