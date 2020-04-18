@@ -6,7 +6,7 @@ namespace TfvcMigrator.Operations
     [DebuggerDisplay("{ToString(),nq}")]
     public sealed class UpdateContentsOperation : MigrationOperation, IEquatable<UpdateContentsOperation?>
     {
-        public UpdateContentsOperation(int changeset, BranchIdentity branch, RepositoryMappingView mapping)
+        public UpdateContentsOperation(int changeset, BranchIdentity branch, RepositoryBranchMapping mapping)
         {
             Changeset = changeset;
             Branch = branch;
@@ -15,7 +15,7 @@ namespace TfvcMigrator.Operations
 
         public override int Changeset { get; }
         public BranchIdentity Branch { get; }
-        public RepositoryMappingView Mapping { get; }
+        public RepositoryBranchMapping Mapping { get; }
 
         public override bool Equals(object? obj)
         {

@@ -125,7 +125,11 @@ namespace TfvcMigrator
             var initialChangeset = changesByChangeset.First().First().Item.ChangesetVersion;
             var master = new BranchIdentity(initialChangeset, rootPath);
 
-            var mappings = new Dictionary<BranchIdentity, RepositoryMappingView> { [master] = new RepositoryMappingView(master.Path) };
+            var mappings = new Dictionary<BranchIdentity, RepositoryBranchMapping>
+            {
+                [master] = new RepositoryBranchMapping(master.Path, subdirectoryMapping: null),
+            };
+
             var heads = new Dictionary<BranchIdentity, Commit>();
 
             foreach (var changeset in changesets.Skip(1))
@@ -178,7 +182,7 @@ namespace TfvcMigrator
                             var mapping = mappings[branch.SourceBranch];
 
                             if (branch.SourceBranch.IsOrContains(mapping.RootDirectory))
-                                mapping = mapping.WithRootDirectory(PathUtils.ReplaceContainingPath(mapping.RootDirectory, branch.SourceBranchPath, branch.NewBranch.Path));
+                                mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
 
                             mappings.Add(branch.NewBranch, mapping);
 
@@ -205,7 +209,7 @@ namespace TfvcMigrator
                             heads.Add(rename.NewIdentity, head);
 
                             if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
-                            mappings.Add(rename.NewIdentity, mapping.WithRootDirectory(rename.NewIdentity.Path));
+                            mappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
 
                             hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
 
