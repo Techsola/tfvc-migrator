@@ -134,8 +134,12 @@ namespace TfvcMigrator
 
             var topologyAnalyzer = new TopologyAnalyzer(master, rootPathChanges);
 
+            var completedChangesetCount = 0;
+
             foreach (var changeset in changesets)
             {
+                Console.Write($"\rDownloading CS{changeset.ChangesetId} ({completedChangesetCount / (double)changesets.Count:p1})...");
+
                 var changesetChanges = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
 
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
@@ -254,7 +258,11 @@ namespace TfvcMigrator
                         heads[branch] = repo.Branches.Add(newBranchName, commit);
                     }
                 }
+
+                completedChangesetCount++;
             }
+
+            Console.WriteLine($"\rAll {completedChangesetCount} changesets migrated successfully.");
         }
 
         private static ImmutableDictionary<string, Identity> LoadAuthors(string authorsPath)
