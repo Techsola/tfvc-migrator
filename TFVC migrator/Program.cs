@@ -120,7 +120,6 @@ namespace TfvcMigrator
 
 
             var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
-            var dummyTree = repo.ObjectDatabase.CreateTree(new TreeDefinition());
 
 
             var initialChangeset = changesByChangeset.First().First().Item.ChangesetVersion;
@@ -144,13 +143,10 @@ namespace TfvcMigrator
                 {
                     var mapping = mappings[master];
 
-                    var initialItems = await client.GetItemsAsync(
-                        mapping.RootDirectory,
-                        VersionControlRecursionType.Full,
-                        versionDescriptor: new TfvcVersionDescriptor(
-                            TfvcVersionOption.None,
-                            TfvcVersionType.Changeset,
-                            changeset.ChangesetId.ToString(CultureInfo.InvariantCulture)));
+                    var initialItems = await DownloadItemsAsync(
+                        client,
+                        new[] { mapping.RootDirectory },
+                        changeset.ChangesetId);
 
                     var builder = new TreeDefinition();
 
@@ -169,29 +165,93 @@ namespace TfvcMigrator
                     heads.Add(master, CreateCommit(repo.ObjectDatabase.CreateTree(builder), Enumerable.Empty<Commit>()));
                 }
 
+                var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
+
                 foreach (var operation in topologicalOperations[changeset.ChangesetId])
                 {
                     switch (operation)
                     {
                         case BranchOperation branch:
-                            heads.Add(branch.NewBranch, CreateCommit(dummyTree, new[] { heads[branch.SourceBranch] }));
+                        {
+                            heads.Add(branch.NewBranch, heads[branch.SourceBranch]);
+
+                            var mapping = mappings[branch.SourceBranch];
+
+                            if (branch.SourceBranch.IsOrContains(mapping.RootDirectory))
+                                mapping = mapping.WithRootDirectory(PathUtils.ReplaceContainingPath(mapping.RootDirectory, branch.SourceBranchPath, branch.NewBranch.Path));
+
+                            mappings.Add(branch.NewBranch, mapping);
+
+                            hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: null));
                             break;
+                        }
 
                         case DeleteOperation delete:
+                        {
                             if (!heads.Remove(delete.Branch)) throw new NotImplementedException();
+                            if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
                             break;
+                        }
 
                         case MergeOperation merge:
-                            heads[merge.TargetBranch] = CreateCommit(dummyTree, new[] { heads[merge.TargetBranch], heads[merge.SourceBranch] });
+                        {
+                            hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch]));
                             break;
+                        }
 
                         case RenameOperation rename:
+                        {
                             if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+                            heads.Add(rename.NewIdentity, head);
 
-                            heads.Add(rename.NewIdentity, CreateCommit(dummyTree, new[] { head }));
+                            if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
+                            mappings.Add(rename.NewIdentity, mapping.WithRootDirectory(rename.NewIdentity.Path));
+
+                            hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
 
                             if (master == rename.OldIdentity) master = rename.NewIdentity;
                             break;
+                        }
+                    }
+                }
+
+                // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
+                var currentItems = await DownloadItemsAsync(
+                    client,
+                    mappings.Values.Select(mapping => mapping.RootDirectory),
+                    changeset.ChangesetId);
+
+                foreach (var (branch, mapping) in mappings.ToList())
+                {
+                    var builder = new TreeDefinition();
+
+                    foreach (var item in currentItems)
+                    {
+                        if (item.IsFolder || item.IsBranch) continue;
+                        if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
+                        if (item.IsPendingChange) throw new NotImplementedException("Unsure what IsPendingChange means.");
+
+                        if (mapping.GetGitRepositoryPath(item.Path) is { } path)
+                        {
+                            builder.Add(path, dummyBlob, Mode.NonExecutableFile);
+                        }
+                    }
+
+                    var requireCommit = false;
+                    var firstParent = heads[branch];
+                    var parents = new List<Commit> { firstParent };
+
+                    foreach (var (_, additionalParent) in hasTopologicalOperation.Where(t => t.Branch == branch))
+                    {
+                        requireCommit = true;
+                        if (additionalParent is { }) parents.Add(additionalParent);
+                    }
+
+                    var tree = repo.ObjectDatabase.CreateTree(builder);
+
+                    if (requireCommit || tree.Sha != firstParent.Tree.Sha)
+                    {
+                        heads[branch] = CreateCommit(tree, parents);
                     }
                 }
             }
@@ -230,6 +290,44 @@ namespace TfvcMigrator
             }
 
             return builder.ToImmutable();
+        }
+
+        private static async Task<ImmutableArray<TfvcItem>> DownloadItemsAsync(TfvcHttpClient client, IEnumerable<string> scopePaths, int changeset)
+        {
+            var version = new TfvcVersionDescriptor(
+                TfvcVersionOption.None,
+                TfvcVersionType.Changeset,
+                changeset.ToString(CultureInfo.InvariantCulture));
+
+            var results = await Task.WhenAll(
+                GetNonOverlappingPaths(scopePaths).Select(scopePath =>
+                     client.GetItemsAsync(scopePath, VersionControlRecursionType.Full, versionDescriptor: version)));
+
+            return results.SelectMany(list => list).ToImmutableArray();
+        }
+
+        private static ImmutableArray<string> GetNonOverlappingPaths(IEnumerable<string> paths)
+        {
+            var nonOverlappingPaths = ImmutableArray.CreateBuilder<string>();
+
+            foreach (var path in paths)
+            {
+                if (!PathUtils.IsAbsolute(path))
+                    throw new ArgumentException("Paths must be absolute.", nameof(paths));
+
+                if (nonOverlappingPaths.Any(previous => PathUtils.IsOrContains(previous, path)))
+                    continue;
+
+                for (var i = nonOverlappingPaths.Count - 1; i >= 0; i--)
+                {
+                    if (PathUtils.Contains(path, nonOverlappingPaths[i]))
+                        nonOverlappingPaths.RemoveAt(i);
+                }
+
+                nonOverlappingPaths.Add(path);
+            }
+
+            return nonOverlappingPaths.ToImmutable();
         }
 
         private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(TfvcHttpClient client, IReadOnlyCollection<TfvcChangesetRef> changesets)

@@ -9,6 +9,19 @@ namespace TfvcMigrator
             return sourcePath.StartsWith("$/", StringComparison.Ordinal);
         }
 
+        public static bool Contains(string parentPath, string otherPath)
+        {
+            if (parentPath.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(parentPath));
+
+            if (otherPath.EndsWith('/'))
+                throw new ArgumentException("Path should not end with a trailing slash.", nameof(otherPath));
+
+            return
+                otherPath.Length > parentPath.Length + 1
+                && otherPath[parentPath.Length] == '/' && otherPath.StartsWith(parentPath, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static bool IsOrContains(string parentPath, string otherPath)
         {
             if (parentPath.EndsWith('/'))
