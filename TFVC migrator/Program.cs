@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -139,7 +140,7 @@ namespace TfvcMigrator
 
             var heads = new Dictionary<BranchIdentity, Commit>();
 
-            foreach (var changeset in changesets.Skip(1))
+            foreach (var changeset in changesets)
             {
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
@@ -148,31 +149,6 @@ namespace TfvcMigrator
                 Commit CreateCommit(Tree tree, IEnumerable<Commit> parents)
                 {
                     return repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
-                }
-
-                if (!heads.Any())
-                {
-                    var mapping = mappings[master];
-
-                    var initialItems = await DownloadItemsAsync(
-                        client,
-                        new[] { mapping.RootDirectory },
-                        changeset.ChangesetId);
-
-                    var builder = new TreeDefinition();
-
-                    foreach (var item in initialItems)
-                    {
-                        if (item.IsFolder || item.IsBranch) continue;
-                        if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
-
-                        if (mapping.GetGitRepositoryPath(item.Path) is { } path)
-                        {
-                            builder.Add(path, dummyBlob, Mode.NonExecutableFile);
-                        }
-                    }
-
-                    heads.Add(master, CreateCommit(repo.ObjectDatabase.CreateTree(builder), Enumerable.Empty<Commit>()));
                 }
 
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
@@ -255,8 +231,12 @@ namespace TfvcMigrator
                     }
 
                     var requireCommit = false;
-                    var firstParent = heads[branch];
-                    var parents = new List<Commit> { firstParent };
+                    var parents = new List<Commit>();
+
+                    // Workaround: use .NET Core extension method rather than buggy extension method exposed by Microsoft.VisualStudio.Services.Client package.
+                    // https://developercommunity.visualstudio.com/content/problem/996912/client-nuget-package-microsoftvisualstudioservices.html
+                    var firstParent = CollectionExtensions.GetValueOrDefault(heads, branch);
+                    if (firstParent is { }) parents.Add(firstParent);
 
                     foreach (var (_, additionalParent) in hasTopologicalOperation.Where(t => t.Branch == branch))
                     {
@@ -266,7 +246,7 @@ namespace TfvcMigrator
 
                     var tree = repo.ObjectDatabase.CreateTree(builder);
 
-                    if (requireCommit || tree.Sha != firstParent.Tree.Sha)
+                    if (requireCommit || tree.Sha != firstParent?.Tree.Sha)
                     {
                         heads[branch] = CreateCommit(tree, parents);
                     }
