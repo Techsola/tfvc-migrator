@@ -1,4 +1,5 @@
-﻿using Microsoft.TeamFoundation.SourceControl.WebApi;
+﻿using LibGit2Sharp;
+using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
 using System;
@@ -7,7 +8,9 @@ using System.Collections.Immutable;
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TfvcMigrator.Operations;
@@ -22,6 +25,7 @@ namespace TfvcMigrator
             {
                 new Argument<Uri>("project-collection-url") { Description = "The URL of the Azure DevOps project collection." },
                 new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." },
+                new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
                 new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
                 new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." },
                 new Option<ImmutableArray<RootPathChange>>(
@@ -34,7 +38,7 @@ namespace TfvcMigrator
             };
 
             command.Handler = CommandHandler.Create(
-                new Func<Uri, string, int?, int?, ImmutableArray<RootPathChange>, Task>(MigrateAsync));
+                new Func<Uri, string, string?, int?, int?, ImmutableArray<RootPathChange>, Task>(MigrateAsync));
 
             return command.InvokeAsync(args);
         }
@@ -58,26 +62,100 @@ namespace TfvcMigrator
         public static async Task MigrateAsync(
             Uri projectCollectionUrl,
             string rootPath,
+            string? outDir = null,
             int? minChangeset = null,
             int? maxChangeset = null,
             ImmutableArray<RootPathChange> rootPathChanges = default)
         {
             if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
 
-            var changesByChangeset = await DownloadChangesAsync(projectCollectionUrl, rootPath, minChangeset, maxChangeset);
+            var outputDirectory = Path.GetFullPath(
+                new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
+                    .First(name => !string.IsNullOrEmpty(name))!);
+
+            using var repo = new Repository(Repository.Init(outputDirectory));
+
+
+            using var connection = new VssConnection(projectCollectionUrl, new VssCredentials());
+            using var client = await connection.GetClientAsync<TfvcHttpClient>();
+
+            var changesByChangeset = await DownloadChangesAsync(client, rootPath, minChangeset, maxChangeset);
 
             var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset);
+
+
+            var dummySignature = new Signature("test", "test@test.com", DateTimeOffset.Now);
+            var dummyTree = repo.ObjectDatabase.CreateTree(new TreeDefinition());
+
+            var heads = new Dictionary<BranchIdentity, Commit>();
+
+            var initialChangeset = changesByChangeset.First().First().Item.ChangesetVersion;
+            var master = new BranchIdentity(initialChangeset, rootPath);
+
+            heads.Add(master, repo.ObjectDatabase.CreateCommit(
+                author: dummySignature,
+                committer: dummySignature,
+                message: "CS" + initialChangeset,
+                tree: dummyTree,
+                parents: Enumerable.Empty<Commit>(),
+                prettifyMessage: true));
+
+            foreach (var operation in topologicalOperations)
+            {
+                switch (operation)
+                {
+                    case BranchOperation branch:
+                        heads.Add(branch.NewBranch, repo.ObjectDatabase.CreateCommit(
+                            author: dummySignature,
+                            committer: dummySignature,
+                            message: "CS" + operation.Changeset,
+                            tree: dummyTree,
+                            parents: new[] { heads[branch.SourceBranch] },
+                            prettifyMessage: true));
+                        break;
+
+                    case DeleteOperation delete:
+                        if (!heads.Remove(delete.Branch)) throw new NotImplementedException();
+                        break;
+
+                    case MergeOperation merge:
+                        heads[merge.TargetBranch] = repo.ObjectDatabase.CreateCommit(
+                            author: dummySignature,
+                            committer: dummySignature,
+                            message: "CS" + operation.Changeset,
+                            tree: dummyTree,
+                            parents: new[] { heads[merge.TargetBranch], heads[merge.SourceBranch] },
+                            prettifyMessage: true);
+                        break;
+
+                    case RenameOperation rename:
+                        if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+
+                        heads.Add(rename.NewIdentity, repo.ObjectDatabase.CreateCommit(
+                            author: dummySignature,
+                            committer: dummySignature,
+                            message: "CS" + operation.Changeset,
+                            tree: dummyTree,
+                            parents: new[] { head },
+                            prettifyMessage: true));
+
+                        if (master == rename.OldIdentity) master = rename.NewIdentity;
+                        break;
+                }
+            }
+
+            foreach (var (branch, head) in heads)
+            {
+                repo.CreateBranch(branch == master ? "master" : GetValidGitBranchName(branch.Path), head);
+            }
         }
 
         private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(
-            Uri collectionBaseUrl,
+            TfvcHttpClient client,
             string sourcePath,
             int? minChangeset,
             int? maxChangeset)
         {
-            using var connection = new VssConnection(collectionBaseUrl, new VssCredentials());
-            using var client = await connection.GetClientAsync<TfvcHttpClient>();
-
             var changesets = await client.GetChangesetsAsync(
                 maxCommentLength: 0,
                 top: int.MaxValue,
@@ -239,6 +317,51 @@ namespace TfvcMigrator
             }
 
             return (branches.ToImmutable(), merges.ToImmutable());
+        }
+
+        private static string GetValidGitBranchName(string tfsBranchName)
+        {
+            var leaf = PathUtils.GetLeaf(tfsBranchName);
+            var name = new StringBuilder(leaf.Length);
+            var skipping = false;
+
+            foreach (var c in leaf)
+            {
+                var skip = c <= ' ';
+                if (!skip)
+                {
+                    switch (c)
+                    {
+                        case '-': // Not illegal, but collapse with the rest
+                        case '\\':
+                        case '?':
+                        case '*':
+                        case '[':
+                        case '~':
+                        case '^':
+                        case ':':
+                        case '\x7f':
+                            skip = true;
+                            break;
+                    }
+                }
+
+                if (skip)
+                {
+                    skipping = true;
+                }
+                else
+                {
+                    if (skipping)
+                    {
+                        name.Append('-');
+                        skipping = false;
+                    }
+                    name.Append(c);
+                }
+            }
+
+            return name.ToString();
         }
     }
 }

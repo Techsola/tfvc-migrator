@@ -36,6 +36,12 @@ namespace TfvcMigrator
                 path1.Equals(path2, StringComparison.OrdinalIgnoreCase);
         }
 
+        public static string GetLeaf(string path)
+        {
+            var index = path.LastIndexOf('/');
+            return index == -1 ? path : path[(index + 1)..];
+        }
+
         public static string ReplaceContainingPath(string path, string containingPath, string newContainingPath)
         {
             if (path.EndsWith('/'))
