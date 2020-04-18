@@ -70,7 +70,7 @@ namespace TfvcMigrator
             if (!IsOrContains(containingPath, path))
                 throw new ArgumentException("The specified containing path does not contain the specified path.");
 
-            return path.Substring(containingPath.Length);
+            return path[(containingPath.Length + 1)..];
         }
 
         public static (string SourcePath, string TargetPath) RemoveCommonTrailingSegments(

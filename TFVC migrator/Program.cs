@@ -119,27 +119,54 @@ namespace TfvcMigrator
                 .ToLookup(operation => operation.Changeset);
 
 
+            var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
             var dummyTree = repo.ObjectDatabase.CreateTree(new TreeDefinition());
 
-            var heads = new Dictionary<BranchIdentity, Commit>();
 
             var initialChangeset = changesByChangeset.First().First().Item.ChangesetVersion;
             var master = new BranchIdentity(initialChangeset, rootPath);
 
-            foreach (var changeset in changesets)
+            var mappings = new Dictionary<BranchIdentity, RepositoryMappingView> { [master] = new RepositoryMappingView(master.Path) };
+            var heads = new Dictionary<BranchIdentity, Commit>();
+
+            foreach (var changeset in changesets.Skip(1))
             {
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
 
-                Commit CreateCommit(IEnumerable<Commit> parents)
+                Commit CreateCommit(Tree tree, IEnumerable<Commit> parents)
                 {
-                    return repo.ObjectDatabase.CreateCommit(author, committer, message, tree: dummyTree, parents, prettifyMessage: true);
+                    return repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
                 }
 
                 if (!heads.Any())
                 {
-                    heads.Add(master, CreateCommit(Enumerable.Empty<Commit>()));
+                    var mapping = mappings[master];
+
+                    var initialItems = await client.GetItemsAsync(
+                        mapping.RootDirectory,
+                        VersionControlRecursionType.Full,
+                        versionDescriptor: new TfvcVersionDescriptor(
+                            TfvcVersionOption.None,
+                            TfvcVersionType.Changeset,
+                            changeset.ChangesetId.ToString(CultureInfo.InvariantCulture)));
+
+                    var builder = new TreeDefinition();
+
+                    foreach (var item in initialItems)
+                    {
+                        if (item.IsFolder || item.IsBranch) continue;
+                        if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
+                        if (item.IsPendingChange) throw new NotImplementedException("Unsure what IsPendingChange means.");
+
+                        if (mapping.GetGitRepositoryPath(item.Path) is { } path)
+                        {
+                            builder.Add(path, dummyBlob, Mode.NonExecutableFile);
+                        }
+                    }
+
+                    heads.Add(master, CreateCommit(repo.ObjectDatabase.CreateTree(builder), Enumerable.Empty<Commit>()));
                 }
 
                 foreach (var operation in topologicalOperations[changeset.ChangesetId])
@@ -147,7 +174,7 @@ namespace TfvcMigrator
                     switch (operation)
                     {
                         case BranchOperation branch:
-                            heads.Add(branch.NewBranch, CreateCommit(new[] { heads[branch.SourceBranch] }));
+                            heads.Add(branch.NewBranch, CreateCommit(dummyTree, new[] { heads[branch.SourceBranch] }));
                             break;
 
                         case DeleteOperation delete:
@@ -155,13 +182,13 @@ namespace TfvcMigrator
                             break;
 
                         case MergeOperation merge:
-                            heads[merge.TargetBranch] = CreateCommit(new[] { heads[merge.TargetBranch], heads[merge.SourceBranch] });
+                            heads[merge.TargetBranch] = CreateCommit(dummyTree, new[] { heads[merge.TargetBranch], heads[merge.SourceBranch] });
                             break;
 
                         case RenameOperation rename:
                             if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
 
-                            heads.Add(rename.NewIdentity, CreateCommit(new[] { head }));
+                            heads.Add(rename.NewIdentity, CreateCommit(dummyTree, new[] { head }));
 
                             if (master == rename.OldIdentity) master = rename.NewIdentity;
                             break;
