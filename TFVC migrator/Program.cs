@@ -158,7 +158,6 @@ namespace TfvcMigrator
                     {
                         if (item.IsFolder || item.IsBranch) continue;
                         if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
-                        if (item.IsPendingChange) throw new NotImplementedException("Unsure what IsPendingChange means.");
 
                         if (mapping.GetGitRepositoryPath(item.Path) is { } path)
                         {
@@ -233,7 +232,14 @@ namespace TfvcMigrator
                     {
                         if (item.IsFolder || item.IsBranch) continue;
                         if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
-                        if (item.IsPendingChange) throw new NotImplementedException("Unsure what IsPendingChange means.");
+
+                        if (mappings.Keys.Any(otherBranch =>
+                            otherBranch != branch
+                            && PathUtils.IsOrContains(otherBranch.Path, item.Path)
+                            && PathUtils.Contains(mapping.RootDirectory, otherBranch.Path)))
+                        {
+                            continue;
+                        }
 
                         if (mapping.GetGitRepositoryPath(item.Path) is { } path)
                         {
