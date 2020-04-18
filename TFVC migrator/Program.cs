@@ -75,11 +75,18 @@ namespace TfvcMigrator
         {
             if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
 
-            var authorsLookup = LoadAuthors(authors);
-
             var outputDirectory = Path.GetFullPath(
                 new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
                     .First(name => !string.IsNullOrEmpty(name))!);
+
+            Directory.CreateDirectory(outputDirectory);
+            if (Directory.GetFileSystemEntries(outputDirectory).Any())
+            {
+                Console.WriteLine($"Cannot create Git repository at {outputDirectory} because the directory is not empty.");
+                return;
+            }
+
+            var authorsLookup = LoadAuthors(authors);
 
             using var repo = new Repository(Repository.Init(outputDirectory));
 
