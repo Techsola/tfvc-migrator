@@ -121,17 +121,9 @@ namespace TfvcMigrator
                 return;
             }
 
-            var changesByChangeset = await DownloadChangesAsync(client, changesets);
-
-            var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset)
-                .ToLookup(operation => operation.Changeset);
-
-
             var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
 
-
-            var initialChangeset = changesByChangeset.First().First().Item.ChangesetVersion;
-            var master = new BranchIdentity(initialChangeset, rootPath);
+            var master = new BranchIdentity(changesets.First().ChangesetId, rootPath);
 
             var mappings = new Dictionary<BranchIdentity, RepositoryBranchMapping>
             {
@@ -140,56 +132,63 @@ namespace TfvcMigrator
 
             var heads = new Dictionary<BranchIdentity, Branch>();
 
+            var topologyAnalyzer = new TopologyAnalyzer(master, rootPathChanges);
+
             foreach (var changeset in changesets)
             {
+                var changesetChanges = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
+
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
 
-                foreach (var operation in topologicalOperations[changeset.ChangesetId])
+                if (completedChangesetCount > 0)
                 {
-                    switch (operation)
+                    foreach (var operation in topologyAnalyzer.GetTopologicalOperations(changesetChanges))
                     {
-                        case BranchOperation branch:
+                        switch (operation)
                         {
-                            heads.Add(branch.NewBranch, heads[branch.SourceBranch]);
+                            case BranchOperation branch:
+                            {
+                                heads.Add(branch.NewBranch, heads[branch.SourceBranch]);
 
-                            var mapping = mappings[branch.SourceBranch];
+                                var mapping = mappings[branch.SourceBranch];
 
-                            if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
-                                mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
+                                if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
+                                    mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
 
-                            mappings.Add(branch.NewBranch, mapping);
+                                mappings.Add(branch.NewBranch, mapping);
 
-                            hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: null));
-                            break;
-                        }
+                                hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: null));
+                                break;
+                            }
 
-                        case DeleteOperation delete:
-                        {
-                            if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
-                            repo.Branches.Remove(head);
+                            case DeleteOperation delete:
+                            {
+                                if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
+                                repo.Branches.Remove(head);
 
-                            if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
-                            break;
-                        }
+                                if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
+                                break;
+                            }
 
-                        case MergeOperation merge:
-                        {
-                            hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
-                            break;
-                        }
+                            case MergeOperation merge:
+                            {
+                                hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
+                                break;
+                            }
 
-                        case RenameOperation rename:
-                        {
-                            if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
-                            heads.Add(rename.NewIdentity, head);
+                            case RenameOperation rename:
+                            {
+                                if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+                                heads.Add(rename.NewIdentity, head);
 
-                            if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
-                            mappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
+                                if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
+                                mappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
 
-                            hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
+                                hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
 
-                            if (master == rename.OldIdentity) master = rename.NewIdentity;
-                            break;
+                                if (master == rename.OldIdentity) master = rename.NewIdentity;
+                                break;
+                            }
                         }
                     }
                 }
@@ -324,157 +323,6 @@ namespace TfvcMigrator
             }
 
             return nonOverlappingPaths.ToImmutable();
-        }
-
-        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(TfvcHttpClient client, IReadOnlyCollection<TfvcChangesetRef> changesets)
-        {
-            var changesetsDownloaded = 0;
-
-            return await changesets.SelectAwaitParallel(
-                async changeset =>
-                {
-                    var progress = Interlocked.Increment(ref changesetsDownloaded) - 1;
-                    Console.Write($"\rDownloading CS{changeset.ChangesetId} ({progress / (double)changesets.Count:p1})...");
-
-                    var changes = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
-                    return changes.ToImmutableArray();
-                },
-                degreeOfParallelism: 5,
-                CancellationToken.None);
-        }
-
-        private static ImmutableArray<MigrationOperation> GetTopologicalOperations(string rootPath, ImmutableArray<RootPathChange> rootPathChanges, ImmutableArray<ImmutableArray<TfvcChange>> changesByChangeset)
-        {
-            var rootPathChangeStack = new Stack<RootPathChange>(rootPathChanges.OrderByDescending(c => c.Changeset));
-            if (rootPathChangeStack.Zip(rootPathChangeStack.Skip(1)).Any(pair => pair.First.Changeset == pair.Second.Changeset))
-                throw new ArgumentException("There is more than one root path change for the same changeset.", nameof(rootPathChanges));
-
-            var operations = ImmutableArray.CreateBuilder<MigrationOperation>();
-
-            var currentRootPath = rootPath;
-            var initialFolderCreationChange = changesByChangeset.First().Single(change =>
-                change.Item.Path.Equals(currentRootPath, StringComparison.OrdinalIgnoreCase));
-
-            var branchIdentifier = new BranchIdentifier(new BranchIdentity(
-                initialFolderCreationChange.Item.ChangesetVersion,
-                initialFolderCreationChange.Item.Path));
-
-            var currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentRootPath };
-
-            foreach (var changes in changesByChangeset.Skip(1))
-            {
-                var changeset = changes[0].Item.ChangesetVersion;
-
-                if (rootPathChangeStack.TryPeek(out var nextRootPathChange))
-                {
-                    if (nextRootPathChange.Changeset < changeset)
-                        throw new NotImplementedException("Move root path outside the original root path");
-
-                    if (nextRootPathChange.Changeset == changeset)
-                    {
-                        rootPathChangeStack.Pop();
-                        if (!currentBranchPaths.Remove(currentRootPath)) throw new NotImplementedException();
-
-                        var newIdentity = new BranchIdentity(changeset, nextRootPathChange.NewSourceRootPath);
-                        branchIdentifier.Rename(changeset, currentRootPath, nextRootPathChange.NewSourceRootPath, out var oldIdentity);
-                        operations.Add(new RenameOperation(oldIdentity, newIdentity));
-
-                        currentRootPath = nextRootPathChange.NewSourceRootPath;
-                        currentBranchPaths.Add(currentRootPath);
-                    }
-                }
-
-                foreach (var change in changes)
-                {
-                    if (change.ChangeType.HasFlag(VersionControlChangeType.Rename) && currentBranchPaths.Remove(change.SourceServerItem))
-                    {
-                        if (change.ChangeType != VersionControlChangeType.Rename)
-                            throw new NotImplementedException("Poorly-understood combination");
-
-                        var newIdentity = new BranchIdentity(changeset, change.Item.Path);
-                        branchIdentifier.Rename(changeset, change.SourceServerItem, change.Item.Path, out var oldIdentity);
-                        operations.Add(new RenameOperation(oldIdentity, newIdentity));
-                        currentBranchPaths.Add(change.Item.Path);
-                    }
-                }
-
-                foreach (var change in changes)
-                {
-                    if (change.ChangeType.HasFlag(VersionControlChangeType.Delete) && currentBranchPaths.Remove(change.Item.Path))
-                    {
-                        if (change.ChangeType != VersionControlChangeType.Delete)
-                            throw new NotImplementedException("Poorly-understood combination");
-
-                        var deletedBranch = branchIdentifier.Delete(changeset, change.Item.Path);
-                        operations.Add(new DeleteOperation(changeset, deletedBranch));
-                    }
-                }
-
-                branchIdentifier.NoFurtherChangesUpTo(changeset - 1);
-
-                var (branches, merges) = GetBranchAndMergeOperations(changes, branchIdentifier);
-
-                foreach (var operation in branches)
-                {
-                    operations.Add(operation);
-                    branchIdentifier.Add(operation.NewBranch);
-                    currentBranchPaths.Add(operation.NewBranch.Path);
-                }
-
-                foreach (var operation in merges)
-                {
-                    operations.Add(operation);
-                }
-            }
-
-            return operations.ToImmutable();
-        }
-
-        private static (ImmutableHashSet<BranchOperation> Branches, ImmutableHashSet<MergeOperation> Merges)
-            GetBranchAndMergeOperations(IReadOnlyCollection<TfvcChange> changes, BranchIdentifier branchIdentifier)
-        {
-            var branches = ImmutableHashSet.CreateBuilder<BranchOperation>();
-            var merges = ImmutableHashSet.CreateBuilder<MergeOperation>();
-
-            foreach (var change in changes)
-            {
-                if (!(change.MergeSources?.SingleOrDefault(s => !s.IsRename) is { } source)) continue;
-
-                var sourceBranch = branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem)
-                    ?? throw new NotImplementedException();
-
-                var (sourcePath, targetPath) = PathUtils.RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
-
-                if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
-                {
-                    var targetBranch = branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path)
-                        ?? throw new NotImplementedException();
-
-                    merges.Add(new MergeOperation(change.Item.ChangesetVersion, sourceBranch, sourcePath, targetBranch, targetPath));
-                }
-                else
-                {
-                    branches.Add(new BranchOperation(
-                        sourceBranch,
-                        sourcePath,
-                        newBranch: new BranchIdentity(change.Item.ChangesetVersion, targetPath)));
-                }
-            }
-
-            if (merges.Count > 1)
-            {
-                // Two items is very rare and three hasn't been seen yet, so don't spare anything towards optimization.
-                merges.ExceptWith(merges
-                    .GroupBy(m => (m.SourceBranch, m.TargetBranch))
-                    .SelectMany(mergesWithSameSourceAndTargetBranch =>
-                        mergesWithSameSourceAndTargetBranch.Where(merge =>
-                            mergesWithSameSourceAndTargetBranch.Any(otherMerge =>
-                                otherMerge != merge
-                                && PathUtils.IsOrContains(otherMerge.SourceBranchPath, merge.SourceBranchPath)
-                                && PathUtils.IsOrContains(otherMerge.TargetBranchPath, merge.TargetBranchPath)))));
-            }
-
-            return (branches.ToImmutable(), merges.ToImmutable());
         }
 
         private static string GetValidGitBranchName(string tfsBranchName)
