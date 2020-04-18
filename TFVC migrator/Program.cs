@@ -132,17 +132,25 @@ namespace TfvcMigrator
 
             var topologyAnalyzer = new TopologyAnalyzer(master, rootPathChanges);
 
-            var completedChangesetCount = 0;
+            var timedProgress = TimedProgress.Start();
 
             foreach (var changeset in changesets)
             {
-                Console.Write($"\rDownloading CS{changeset.ChangesetId} ({completedChangesetCount / (double)changesets.Count:p1})...");
+                var timing = new StringBuilder();
+
+                if (timedProgress.GetAverageDuration() is { } avgDuration)
+                    timing.Append($", {avgDuration.TotalMilliseconds:n0} ms/changeset");
+
+                if (timedProgress.GetFriendlyEta(changesets.Count) is { } eta)
+                    timing.Append(", ETA ").Append(eta);
+
+                Console.Write($"\rDownloading CS{changeset.ChangesetId} ({timedProgress.GetPercent(changesets.Count):p1}{timing})...");
 
                 var changesetChanges = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
 
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
 
-                if (completedChangesetCount > 0)
+                if (changeset != changesets.First())
                 {
                     foreach (var operation in topologyAnalyzer.GetTopologicalOperations(changesetChanges))
                     {
@@ -258,10 +266,10 @@ namespace TfvcMigrator
                     }
                 }
 
-                completedChangesetCount++;
+                timedProgress.Increment();
             }
 
-            Console.WriteLine($"\rAll {completedChangesetCount} changesets migrated successfully.");
+            Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
         }
 
         private static ImmutableDictionary<string, Identity> LoadAuthors(string authorsPath)
