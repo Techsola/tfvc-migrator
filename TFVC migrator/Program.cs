@@ -25,6 +25,11 @@ namespace TfvcMigrator
             {
                 new Argument<Uri>("project-collection-url") { Description = "The URL of the Azure DevOps project collection." },
                 new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." },
+                new Option<string>("--authors")
+                {
+                    Required = true,
+                    Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com>",
+                },
                 new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
                 new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
                 new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." },
@@ -38,7 +43,7 @@ namespace TfvcMigrator
             };
 
             command.Handler = CommandHandler.Create(
-                new Func<Uri, string, string?, int?, int?, ImmutableArray<RootPathChange>, Task>(MigrateAsync));
+                new Func<Uri, string, string, string?, int?, int?, ImmutableArray<RootPathChange>, Task>(MigrateAsync));
 
             return command.InvokeAsync(args);
         }
@@ -62,12 +67,15 @@ namespace TfvcMigrator
         public static async Task MigrateAsync(
             Uri projectCollectionUrl,
             string rootPath,
+            string authors,
             string? outDir = null,
             int? minChangeset = null,
             int? maxChangeset = null,
             ImmutableArray<RootPathChange> rootPathChanges = default)
         {
             if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
+
+            var authorsLookup = LoadAuthors(authors);
 
             var outputDirectory = Path.GetFullPath(
                 new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
@@ -90,6 +98,21 @@ namespace TfvcMigrator
                     ToId = maxChangeset ?? 0,
                 }).ConfigureAwait(false);
 
+            var unmappedAuthors = changesets.Select(c => c.Author)
+                .Concat(changesets.Select(c => c.CheckedInBy))
+                .Select(identity => identity.UniqueName)
+                .Where(name => !authorsLookup.ContainsKey(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (unmappedAuthors.Any())
+            {
+                Console.WriteLine("An entry must be added to the authors file for each of the following TFVC users:");
+                foreach (var user in unmappedAuthors)
+                    Console.WriteLine(user);
+                return;
+            }
+
             var changesByChangeset = await DownloadChangesAsync(client, rootPath, changesets);
 
             var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset)
@@ -105,8 +128,8 @@ namespace TfvcMigrator
 
             foreach (var changeset in changesets)
             {
-                var author = new Signature(changeset.Author.DisplayName, changeset.Author.UniqueName, changeset.CreatedDate);
-                var committer = new Signature(changeset.CheckedInBy.DisplayName, changeset.CheckedInBy.UniqueName, changeset.CreatedDate);
+                var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
+                var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
 
                 Commit CreateCommit(IEnumerable<Commit> parents)
@@ -150,6 +173,36 @@ namespace TfvcMigrator
             {
                 repo.CreateBranch(branch == master ? "master" : GetValidGitBranchName(branch.Path), head);
             }
+        }
+
+        private static ImmutableDictionary<string, Identity> LoadAuthors(string authorsPath)
+        {
+            var builder = ImmutableDictionary.CreateBuilder<string, Identity>(StringComparer.OrdinalIgnoreCase);
+
+            using (var reader = File.OpenText(authorsPath))
+            {
+                while (reader.ReadLine() is { } line)
+                {
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    var equalsIndex = line.IndexOf('=');
+                    if (equalsIndex == -1) throw new NotImplementedException("Missing '=' in authors file");
+
+                    var tfvcIdentity = line.AsSpan(0, equalsIndex).Trim().ToString();
+
+                    var gitIdentity = line.AsSpan(equalsIndex + 1).Trim();
+                    var openingAngleBracketIndex = gitIdentity.IndexOf('<');
+                    if (openingAngleBracketIndex == -1) throw new NotImplementedException("Missing '<' in authors file");
+                    if (gitIdentity[^1] != '>') throw new NotImplementedException("Line does not end with '>' in authors file");
+
+                    var name = gitIdentity[..openingAngleBracketIndex].TrimEnd().ToString();
+                    var email = gitIdentity[(openingAngleBracketIndex + 1)..^1].Trim().ToString();
+
+                    builder.Add(tfvcIdentity, new Identity(name, email));
+                }
+            }
+
+            return builder.ToImmutable();
         }
 
         private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(TfvcHttpClient client, string sourcePath, IReadOnlyCollection<TfvcChangesetRef> changesets)
