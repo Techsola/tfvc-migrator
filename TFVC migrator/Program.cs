@@ -181,7 +181,7 @@ namespace TfvcMigrator
 
                             var mapping = mappings[branch.SourceBranch];
 
-                            if (branch.SourceBranch.IsOrContains(mapping.RootDirectory))
+                            if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
                                 mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
 
                             mappings.Add(branch.NewBranch, mapping);
