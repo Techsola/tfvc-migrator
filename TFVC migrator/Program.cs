@@ -75,16 +75,27 @@ namespace TfvcMigrator
 
             using var repo = new Repository(Repository.Init(outputDirectory));
 
-
             using var connection = new VssConnection(projectCollectionUrl, new VssCredentials());
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
-            var changesByChangeset = await DownloadChangesAsync(client, rootPath, minChangeset, maxChangeset);
+            var changesets = await client.GetChangesetsAsync(
+                maxCommentLength: int.MaxValue,
+                top: int.MaxValue,
+                orderby: "ID asc",
+                searchCriteria: new TfvcChangesetSearchCriteria
+                {
+                    FollowRenames = true,
+                    ItemPath = rootPath,
+                    FromId = minChangeset ?? 0,
+                    ToId = maxChangeset ?? 0,
+                }).ConfigureAwait(false);
 
-            var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset);
+            var changesByChangeset = await DownloadChangesAsync(client, rootPath, changesets);
+
+            var topologicalOperations = GetTopologicalOperations(rootPath, rootPathChanges, changesByChangeset)
+                .ToLookup(operation => operation.Changeset);
 
 
-            var dummySignature = new Signature("test", "test@test.com", DateTimeOffset.Now);
             var dummyTree = repo.ObjectDatabase.CreateTree(new TreeDefinition());
 
             var heads = new Dictionary<BranchIdentity, Commit>();
@@ -92,55 +103,46 @@ namespace TfvcMigrator
             var initialChangeset = changesByChangeset.First().First().Item.ChangesetVersion;
             var master = new BranchIdentity(initialChangeset, rootPath);
 
-            heads.Add(master, repo.ObjectDatabase.CreateCommit(
-                author: dummySignature,
-                committer: dummySignature,
-                message: "CS" + initialChangeset,
-                tree: dummyTree,
-                parents: Enumerable.Empty<Commit>(),
-                prettifyMessage: true));
-
-            foreach (var operation in topologicalOperations)
+            foreach (var changeset in changesets)
             {
-                switch (operation)
+                var author = new Signature(changeset.Author.DisplayName, changeset.Author.UniqueName, changeset.CreatedDate);
+                var committer = new Signature(changeset.CheckedInBy.DisplayName, changeset.CheckedInBy.UniqueName, changeset.CreatedDate);
+                var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
+
+                Commit CreateCommit(IEnumerable<Commit> parents)
                 {
-                    case BranchOperation branch:
-                        heads.Add(branch.NewBranch, repo.ObjectDatabase.CreateCommit(
-                            author: dummySignature,
-                            committer: dummySignature,
-                            message: "CS" + operation.Changeset,
-                            tree: dummyTree,
-                            parents: new[] { heads[branch.SourceBranch] },
-                            prettifyMessage: true));
-                        break;
+                    return repo.ObjectDatabase.CreateCommit(author, committer, message, tree: dummyTree, parents, prettifyMessage: true);
+                }
 
-                    case DeleteOperation delete:
-                        if (!heads.Remove(delete.Branch)) throw new NotImplementedException();
-                        break;
+                if (!heads.Any())
+                {
+                    heads.Add(master, CreateCommit(Enumerable.Empty<Commit>()));
+                }
 
-                    case MergeOperation merge:
-                        heads[merge.TargetBranch] = repo.ObjectDatabase.CreateCommit(
-                            author: dummySignature,
-                            committer: dummySignature,
-                            message: "CS" + operation.Changeset,
-                            tree: dummyTree,
-                            parents: new[] { heads[merge.TargetBranch], heads[merge.SourceBranch] },
-                            prettifyMessage: true);
-                        break;
+                foreach (var operation in topologicalOperations[changeset.ChangesetId])
+                {
+                    switch (operation)
+                    {
+                        case BranchOperation branch:
+                            heads.Add(branch.NewBranch, CreateCommit(new[] { heads[branch.SourceBranch] }));
+                            break;
 
-                    case RenameOperation rename:
-                        if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+                        case DeleteOperation delete:
+                            if (!heads.Remove(delete.Branch)) throw new NotImplementedException();
+                            break;
 
-                        heads.Add(rename.NewIdentity, repo.ObjectDatabase.CreateCommit(
-                            author: dummySignature,
-                            committer: dummySignature,
-                            message: "CS" + operation.Changeset,
-                            tree: dummyTree,
-                            parents: new[] { head },
-                            prettifyMessage: true));
+                        case MergeOperation merge:
+                            heads[merge.TargetBranch] = CreateCommit(new[] { heads[merge.TargetBranch], heads[merge.SourceBranch] });
+                            break;
 
-                        if (master == rename.OldIdentity) master = rename.NewIdentity;
-                        break;
+                        case RenameOperation rename:
+                            if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+
+                            heads.Add(rename.NewIdentity, CreateCommit(new[] { head }));
+
+                            if (master == rename.OldIdentity) master = rename.NewIdentity;
+                            break;
+                    }
                 }
             }
 
@@ -150,24 +152,8 @@ namespace TfvcMigrator
             }
         }
 
-        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(
-            TfvcHttpClient client,
-            string sourcePath,
-            int? minChangeset,
-            int? maxChangeset)
+        private static async Task<ImmutableArray<ImmutableArray<TfvcChange>>> DownloadChangesAsync(TfvcHttpClient client, string sourcePath, IReadOnlyCollection<TfvcChangesetRef> changesets)
         {
-            var changesets = await client.GetChangesetsAsync(
-                maxCommentLength: 0,
-                top: int.MaxValue,
-                orderby: "ID asc",
-                searchCriteria: new TfvcChangesetSearchCriteria
-                {
-                    FollowRenames = true,
-                    ItemPath = sourcePath,
-                    FromId = minChangeset ?? 0,
-                    ToId = maxChangeset ?? 0,
-                }).ConfigureAwait(false);
-
             var changesetsDownloaded = 0;
 
             return await changesets.SelectAwaitParallel(
