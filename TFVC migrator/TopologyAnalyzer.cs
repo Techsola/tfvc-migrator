@@ -27,7 +27,7 @@ namespace TfvcMigrator
             currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentRootPath };
         }
 
-        public IEnumerable<MigrationOperation> GetTopologicalOperations(IReadOnlyList<TfvcChange> changesetChanges)
+        public IEnumerable<TopologicalOperation> GetTopologicalOperations(IReadOnlyList<TfvcChange> changesetChanges)
         {
             if (!changesetChanges.Any()) yield break;
 

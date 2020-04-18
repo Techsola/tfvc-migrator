@@ -1,6 +1,6 @@
 ﻿namespace TfvcMigrator.Operations
 {
-    public abstract class MigrationOperation
+    public abstract class TopologicalOperation
     {
         public abstract int Changeset { get; }
 
