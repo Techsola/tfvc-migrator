@@ -162,49 +162,49 @@ namespace TfvcMigrator
                         switch (operation)
                         {
                             case BranchOperation branch:
-                                {
-                                    // Don't copy to heads here because the previous head will be removed if not null.
-                                    hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: heads[branch.SourceBranch].Tip));
+                            {
+                                // Don't copy to heads here because the previous head will be removed if not null.
+                                hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: heads[branch.SourceBranch].Tip));
 
-                                    var mapping = mappings[branch.SourceBranch];
+                                var mapping = mappings[branch.SourceBranch];
 
-                                    if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
-                                        mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
+                                if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
+                                    mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
 
-                                    mappings.Add(branch.NewBranch, mapping);
+                                mappings.Add(branch.NewBranch, mapping);
 
-                                    hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: null));
-                                    break;
-                                }
+                                hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: null));
+                                break;
+                            }
 
                             case DeleteOperation delete:
-                                {
-                                    if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
-                                    repo.Branches.Remove(head);
+                            {
+                                if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
+                                repo.Branches.Remove(head);
 
-                                    if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
-                                    break;
-                                }
+                                if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
+                                break;
+                            }
 
                             case MergeOperation merge:
-                                {
-                                    hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
-                                    break;
-                                }
+                            {
+                                hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
+                                break;
+                            }
 
                             case RenameOperation rename:
-                                {
-                                    if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
-                                    heads.Add(rename.NewIdentity, head);
+                            {
+                                if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+                                heads.Add(rename.NewIdentity, head);
 
-                                    if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
-                                    mappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
+                                if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
+                                mappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
 
-                                    hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
+                                hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
 
-                                    if (master == rename.OldIdentity) master = rename.NewIdentity;
-                                    break;
-                                }
+                                if (master == rename.OldIdentity) master = rename.NewIdentity;
+                                break;
+                            }
                         }
                     }
                 }
