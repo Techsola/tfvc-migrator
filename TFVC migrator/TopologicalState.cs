@@ -5,7 +5,7 @@ namespace TfvcMigrator
 {
     internal readonly struct MappingState
     {
-        public int ChangesetId { get; }
+        public int Changeset { get; }
         public ImmutableArray<TopologicalOperation> TopologicalOperations { get; }
         public BranchIdentity Master { get; }
         public ImmutableDictionary<BranchIdentity, RepositoryBranchMapping> BranchMappings { get; }
@@ -16,7 +16,7 @@ namespace TfvcMigrator
             BranchIdentity master,
             ImmutableDictionary<BranchIdentity, RepositoryBranchMapping> branchMappings)
         {
-            ChangesetId = changesetId;
+            Changeset = changesetId;
             TopologicalOperations = topologicalOperations;
             Master = master;
             BranchMappings = branchMappings;

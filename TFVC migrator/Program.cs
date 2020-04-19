@@ -137,7 +137,7 @@ namespace TfvcMigrator
                             client,
                             PathUtils.GetNonOverlappingPaths(
                                 state.BranchMappings.Values.Select(mapping => mapping.RootDirectory)),
-                            state.ChangesetId)))
+                            state.Changeset)))
                     .WithLookahead()
                     .GetAsyncEnumerator();
 
@@ -149,7 +149,7 @@ namespace TfvcMigrator
                     throw new InvalidOperationException("There should be one mapping state for each changeset.");
 
                 var (mappingState, currentItems) = mappingStateAndItemsEnumerator.Current;
-                if (mappingState.ChangesetId != changeset.ChangesetId)
+                if (mappingState.Changeset != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
                 var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
