@@ -31,6 +31,9 @@ namespace TfvcMigrator
 
         private sealed class LookaheadEnumerator<T> : IAsyncEnumerator<T>
         {
+            private static readonly ValueTask<bool> DetectOverlappingCalls = new ValueTask<bool>(
+                Task.FromException<bool>(new InvalidOperationException("MoveNextAsync may not be called until the previously-returned task completes.")));
+
             private readonly IAsyncEnumerator<T> inner;
             private ValueTask<bool> nextTask;
             private bool useCachedCurrentValue;
@@ -47,7 +50,7 @@ namespace TfvcMigrator
             public ValueTask<bool> MoveNextAsync()
             {
                 var nextTask = this.nextTask;
-                this.nextTask = default;
+                this.nextTask = DetectOverlappingCalls;
 
                 if (nextTask.IsCompleted)
                 {
