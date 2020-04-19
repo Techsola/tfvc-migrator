@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.CommandLine.Invocation;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -123,32 +122,21 @@ namespace TfvcMigrator
 
             var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
 
-            var master = new BranchIdentity(changesets.First().ChangesetId, rootPath);
-
-            var mappings = new Dictionary<BranchIdentity, RepositoryBranchMapping>
-            {
-                [master] = new RepositoryBranchMapping(master.Path, subdirectoryMapping: null),
-            };
+            var initialBranch = new BranchIdentity(changesets.First().ChangesetId, rootPath);
 
             var heads = new Dictionary<BranchIdentity, Branch>();
 
-            var topologyAnalyzer = new TopologyAnalyzer(master, rootPathChanges);
-
             var timedProgress = TimedProgress.Start();
 
-            await using var changesetChangesEnumerator = changesets
-                .Skip(1)
-                .SelectAwait(changeset => client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1))
-                .WithLookahead()
-                .GetAsyncEnumerator();
+            await using var mappingStatesEnumerator = GetMappingStatesEnumeratorAsync(client, rootPathChanges, changesets, initialBranch);
 
             var downloadItemsLookahead = AsyncLookahead.Create(
                 async input => (
                     input.DownloadScopes,
                     Items: await DownloadItemsAsync(client, input.DownloadScopes, input.Changeset)),
                 initialInput: (
-                    Changeset: master.CreationChangeset,
-                    DownloadScopes: ImmutableArray.Create(master.Path)));
+                    Changeset: initialBranch.CreationChangeset,
+                    DownloadScopes: ImmutableArray.Create(initialBranch.Path)));
 
             for (var changesetIndex = 0; changesetIndex < changesets.Count; changesetIndex++)
             {
@@ -156,72 +144,53 @@ namespace TfvcMigrator
 
                 ReportProgress(changeset.ChangesetId, changesets.Count, timedProgress);
 
-                var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
+                if (!await mappingStatesEnumerator.MoveNextAsync())
+                    throw new InvalidOperationException("There should be one mapping state for each changeset.");
 
-                if (changeset != changesets.First())
+                var mappingState = mappingStatesEnumerator.Current;
+                if (mappingState.ChangesetId != changeset.ChangesetId)
+                    throw new InvalidOperationException("Enumerator and loop are out of sync");
+
+                var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
+
+                foreach (var operation in mappingState.TopologicalOperations)
                 {
-                    if (!await changesetChangesEnumerator.MoveNextAsync())
-                        throw new InvalidOperationException("There should be one element for each changeset except the first.");
-
-                    var changesetChanges = changesetChangesEnumerator.Current;
-                    if (changesetChanges.First().Item.ChangesetVersion != changeset.ChangesetId)
-                        throw new InvalidOperationException("Enumerator and loop are out of sync");
-
-                    foreach (var operation in topologyAnalyzer.GetTopologicalOperations(changesetChanges))
+                    switch (operation)
                     {
-                        switch (operation)
+                        case BranchOperation branch:
                         {
-                            case BranchOperation branch:
-                            {
-                                // Don't copy to heads here because the previous head will be removed if not null.
-                                hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: heads[branch.SourceBranch].Tip));
+                            // Don't copy to heads here because the previous head will be removed if not null.
+                            branchesWithTopologicalOperations.Add((branch.NewBranch, AdditionalParent: heads[branch.SourceBranch].Tip));
+                            break;
+                        }
 
-                                var mapping = mappings[branch.SourceBranch];
+                        case DeleteOperation delete:
+                        {
+                            if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
+                            repo.Branches.Remove(head);
+                            break;
+                        }
 
-                                if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
-                                    mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
+                        case MergeOperation merge:
+                        {
+                            branchesWithTopologicalOperations.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
+                            break;
+                        }
 
-                                mappings.Add(branch.NewBranch, mapping);
+                        case RenameOperation rename:
+                        {
+                            if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+                            heads.Add(rename.NewIdentity, head);
 
-                                hasTopologicalOperation.Add((branch.NewBranch, AdditionalParent: null));
-                                break;
-                            }
-
-                            case DeleteOperation delete:
-                            {
-                                if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
-                                repo.Branches.Remove(head);
-
-                                if (!mappings.Remove(delete.Branch)) throw new NotImplementedException();
-                                break;
-                            }
-
-                            case MergeOperation merge:
-                            {
-                                hasTopologicalOperation.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
-                                break;
-                            }
-
-                            case RenameOperation rename:
-                            {
-                                if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
-                                heads.Add(rename.NewIdentity, head);
-
-                                if (!mappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
-                                mappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
-
-                                hasTopologicalOperation.Add((rename.NewIdentity, AdditionalParent: null));
-
-                                if (master == rename.OldIdentity) master = rename.NewIdentity;
-                                break;
-                            }
+                            branchesWithTopologicalOperations.Add((rename.NewIdentity, AdditionalParent: null));
+                            break;
                         }
                     }
                 }
 
                 // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
                 var downloadScopes = PathUtils.GetNonOverlappingPaths(
-                    mappings.Values.Select(mapping => mapping.RootDirectory));
+                    mappingState.BranchMappings.Values.Select(mapping => mapping.RootDirectory));
 
                 var (guessedDownloadScopes, currentItems) = await downloadItemsLookahead.CurrentTask;
 
@@ -243,7 +212,7 @@ namespace TfvcMigrator
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
 
-                foreach (var (branch, mapping) in mappings.ToList())
+                foreach (var (branch, mapping) in mappingState.BranchMappings)
                 {
                     var builder = new TreeDefinition();
 
@@ -252,7 +221,7 @@ namespace TfvcMigrator
                         if (item.IsFolder || item.IsBranch) continue;
                         if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
 
-                        if (mappings.Keys.Any(otherBranch =>
+                        if (mappingState.BranchMappings.Keys.Any(otherBranch =>
                             otherBranch != branch
                             && PathUtils.IsOrContains(otherBranch.Path, item.Path)
                             && PathUtils.Contains(mapping.RootDirectory, otherBranch.Path)))
@@ -274,7 +243,7 @@ namespace TfvcMigrator
                     var head = CollectionExtensions.GetValueOrDefault(heads, branch);
                     if (head is { }) parents.Add(head.Tip);
 
-                    foreach (var (_, additionalParent) in hasTopologicalOperation.Where(t => t.Branch == branch))
+                    foreach (var (_, additionalParent) in branchesWithTopologicalOperations.Where(t => t.Branch == branch))
                     {
                         requireCommit = true;
                         if (additionalParent is { }) parents.Add(additionalParent);
@@ -284,7 +253,7 @@ namespace TfvcMigrator
 
                     if (requireCommit || tree.Sha != head?.Tip.Tree.Sha)
                     {
-                        var newBranchName = branch == master ? "master" : GetValidGitBranchName(branch.Path);
+                        var newBranchName = branch == mappingState.Master ? "master" : GetValidGitBranchName(branch.Path);
                         var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
 
                         // Make sure HEAD is not pointed at a branch
@@ -315,6 +284,83 @@ namespace TfvcMigrator
 
                 Console.Write($"\rDownloading CS{changeset} ({timedProgress.GetPercent(total):p1}{timing})...");
             });
+        }
+
+        private static async IAsyncEnumerator<MappingState> GetMappingStatesEnumeratorAsync(
+            TfvcHttpClient client,
+            ImmutableArray<RootPathChange> rootPathChanges,
+            IReadOnlyList<TfvcChangesetRef> changesets,
+            BranchIdentity initialBranch)
+        {
+            var master = initialBranch;
+
+            var branchMappings = ImmutableDictionary.CreateBuilder<BranchIdentity, RepositoryBranchMapping>();
+            branchMappings.Add(master, new RepositoryBranchMapping(master.Path, subdirectoryMapping: null));
+
+            var topologyAnalyzer = new TopologyAnalyzer(master, rootPathChanges);
+
+            await using var changesetChangesEnumerator = changesets
+                .Skip(1)
+                .SelectAwait(changeset => client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1))
+                .WithLookahead()
+                .GetAsyncEnumerator();
+
+            for (var i = 0; i < changesets.Count; i++)
+            {
+                var changeset = changesets[i];
+
+                var topologicalOperations = ImmutableArray<TopologicalOperation>.Empty;
+
+                if (i > 0)
+                {
+                    if (!await changesetChangesEnumerator.MoveNextAsync())
+                        throw new InvalidOperationException("There should be one element for each changeset except the first.");
+
+                    var changesetChanges = changesetChangesEnumerator.Current;
+                    if (changesetChanges.First().Item.ChangesetVersion != changeset.ChangesetId)
+                        throw new InvalidOperationException("Enumerator and loop are out of sync");
+
+                    topologicalOperations = topologyAnalyzer.GetTopologicalOperations(changesetChanges).ToImmutableArray();
+
+                    foreach (var operation in topologicalOperations)
+                    {
+                        switch (operation)
+                        {
+                            case BranchOperation branch:
+                            {
+                                var mapping = branchMappings[branch.SourceBranch];
+
+                                if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
+                                    mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
+
+                                branchMappings.Add(branch.NewBranch, mapping);
+                                break;
+                            }
+
+                            case DeleteOperation delete:
+                            {
+                                if (!branchMappings.Remove(delete.Branch)) throw new NotImplementedException();
+                                break;
+                            }
+
+                            case RenameOperation rename:
+                            {
+                                if (!branchMappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
+                                branchMappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
+
+                                if (master == rename.OldIdentity) master = rename.NewIdentity;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                yield return new MappingState(
+                    changeset.ChangesetId,
+                    topologicalOperations,
+                    master,
+                    branchMappings.ToImmutable());
+            }
         }
 
         private static ImmutableDictionary<string, Identity> LoadAuthors(string authorsPath)
