@@ -25,6 +25,18 @@ namespace TfvcMigrator
             }
         }
 
+        public static async Task<ImmutableArray<T>> ToImmutableArrayAsync<T>(this IAsyncEnumerable<T> source)
+        {
+            var builder = ImmutableArray.CreateBuilder<T>();
+
+            await foreach (var value in source)
+            {
+                builder.Add(value);
+            }
+
+            return builder.ToImmutable();
+        }
+
         public static Task<ImmutableArray<TResult>> SelectAwaitParallel<T, TResult>(this IEnumerable<T> source, Func<T, Task<TResult>> selector, int degreeOfParallelism, CancellationToken cancellationToken)
         {
             return new AsyncParallelQueue<TResult>(source.Select(selector), degreeOfParallelism, cancellationToken).WaitAllAsync();

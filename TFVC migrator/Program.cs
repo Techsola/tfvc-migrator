@@ -120,6 +120,10 @@ namespace TfvcMigrator
                 return;
             }
 
+            Console.WriteLine("Downloading changesets and converting to commits...");
+
+            var labelsByChangesetTask = GetLabelsByChangesetAsync(client, rootPath);
+
             var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
 
             var initialBranch = new BranchIdentity(changesets.First().ChangesetId, rootPath);
@@ -127,6 +131,8 @@ namespace TfvcMigrator
             var heads = new Dictionary<BranchIdentity, Branch>();
 
             var timedProgress = TimedProgress.Start();
+
+            var commitsByChangeset = new Dictionary<int, ImmutableArray<Commit>>();
 
             await using var mappingStateAndItemsEnumerator =
                 EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
@@ -192,6 +198,7 @@ namespace TfvcMigrator
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
+                var commits = ImmutableArray.CreateBuilder<Commit>();
 
                 foreach (var (branch, mapping) in mappingState.BranchMappings)
                 {
@@ -236,6 +243,7 @@ namespace TfvcMigrator
                     {
                         var newBranchName = branch == mappingState.Master ? "master" : GetValidGitBranchName(branch.Path);
                         var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
+                        commits.Add(commit);
 
                         // Make sure HEAD is not pointed at a branch
                         repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
@@ -245,10 +253,56 @@ namespace TfvcMigrator
                     }
                 }
 
+                if (commits.Any())
+                    commitsByChangeset.Add(changeset.ChangesetId, commits.ToImmutable());
+
                 timedProgress.Increment();
             }
 
+            foreach (var (changeset, labels) in await labelsByChangesetTask)
+            {
+                if (commitsByChangeset.TryGetValue(changeset, out var commits))
+                {
+                    if (commits.Length > 1)
+                        throw new NotImplementedException("TODO: Add branch suffix to tags since same commit was replayed in multiple branches");
+
+                    foreach (var label in labels)
+                    {
+                        repo.Tags.Add(
+                            GetValidGitBranchName(label.Name),
+                            commits.Single(),
+                            new Signature(authorsLookup[label.Owner.UniqueName], label.ModifiedDate),
+                            label.Description);
+                    }
+                }
+            }
+
             Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
+        }
+
+        private static async Task<ImmutableArray<(int Changeset, ImmutableArray<TfvcLabelRef> Labels)>> GetLabelsByChangesetAsync(
+            TfvcHttpClient client,
+            string rootPath)
+        {
+            var labels = await client.GetLabelsAsync(
+                new TfvcLabelRequestData
+                {
+                    MaxItemCount = int.MaxValue,
+                    LabelScope = rootPath,
+                },
+                top: int.MaxValue);
+
+            var changesetsByLabelIndex = await labels
+                .SelectAwait(async label => (await client.GetLabelItemsAsync(label.Id.ToString(CultureInfo.InvariantCulture), top: int.MaxValue))
+                    .Max(item => item.ChangesetVersion))
+                .ToImmutableArrayAsync();
+
+            return changesetsByLabelIndex
+                .Zip(labels)
+                .GroupBy(pair => pair.First, (changeset, pairs) => (
+                    changeset,
+                    pairs.Select(p => p.Second).ToImmutableArray()))
+                .ToImmutableArray();
         }
 
         private static void ReportProgress(int changeset, int total, TimedProgress timedProgress)
@@ -263,7 +317,7 @@ namespace TfvcMigrator
                 if (timedProgress.GetFriendlyEta(total) is { } eta)
                     timing.Append(", ETA ").Append(eta);
 
-                Console.Write($"\rDownloading CS{changeset} ({timedProgress.GetPercent(total):p1}{timing})...");
+                Console.Write($"\rCS{changeset} ({timedProgress.GetPercent(total):p1}{timing})...");
             });
         }
 
