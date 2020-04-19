@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -134,6 +135,12 @@ namespace TfvcMigrator
 
             var timedProgress = TimedProgress.Start();
 
+            await using var changesetChangesEnumerator = changesets
+                .Skip(1)
+                .SelectAwait(changeset => client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1))
+                .WithLookahead()
+                .GetAsyncEnumerator();
+
             foreach (var changeset in changesets)
             {
                 var timing = new StringBuilder();
@@ -150,7 +157,12 @@ namespace TfvcMigrator
 
                 if (changeset != changesets.First())
                 {
-                    var changesetChanges = await client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1);
+                    if (!await changesetChangesEnumerator.MoveNextAsync())
+                        throw new InvalidOperationException("There should be one element for each changeset except the first.");
+
+                    var changesetChanges = changesetChangesEnumerator.Current;
+                    if (changesetChanges.First().Item.ChangesetVersion != changeset.ChangesetId)
+                        throw new InvalidOperationException("Enumerator and loop are out of sync");
 
                     foreach (var operation in topologyAnalyzer.GetTopologicalOperations(changesetChanges))
                     {
