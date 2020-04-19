@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace TfvcMigrator
@@ -35,11 +34,6 @@ namespace TfvcMigrator
             }
 
             return builder.ToImmutable();
-        }
-
-        public static Task<ImmutableArray<TResult>> SelectAwaitParallel<T, TResult>(this IEnumerable<T> source, Func<T, Task<TResult>> selector, int degreeOfParallelism, CancellationToken cancellationToken)
-        {
-            return new AsyncParallelQueue<TResult>(source.Select(selector), degreeOfParallelism, cancellationToken).WaitAllAsync();
         }
 
         public static IEnumerable<T?> AsNullable<T>(this IEnumerable<T> source)
