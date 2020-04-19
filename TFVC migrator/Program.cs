@@ -128,41 +128,29 @@ namespace TfvcMigrator
 
             var timedProgress = TimedProgress.Start();
 
-            await using var mappingStatesEnumerator = GetMappingStatesEnumeratorAsync(client, rootPathChanges, changesets, initialBranch);
+            await using var mappingStateAndItemsEnumerator =
+                EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
+                    .SelectAwait(async state => (
+                        MappingState: state,
+                        // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
+                        Items: await DownloadItemsAsync(
+                            client,
+                            PathUtils.GetNonOverlappingPaths(
+                                state.BranchMappings.Values.Select(mapping => mapping.RootDirectory)),
+                            state.ChangesetId)))
+                    .WithLookahead()
+                    .GetAsyncEnumerator();
 
-            var downloadItemsLookahead = AsyncLookahead.Create(
-                input => DownloadItemsAsync(client, input.DownloadScopes, input.Changeset),
-                initialInput: (
-                    Changeset: initialBranch.CreationChangeset,
-                    DownloadScopes: ImmutableArray.Create(initialBranch.Path)));
-
-            if (!await mappingStatesEnumerator.MoveNextAsync())
-                throw new InvalidOperationException("There should be one mapping state for each changeset.");
-
-            for (var changesetIndex = 0; changesetIndex < changesets.Count; changesetIndex++)
+            foreach (var changeset in changesets)
             {
-                var changeset = changesets[changesetIndex];
-
                 ReportProgress(changeset.ChangesetId, changesets.Count, timedProgress);
 
-                var mappingState = mappingStatesEnumerator.Current;
+                if (!await mappingStateAndItemsEnumerator.MoveNextAsync())
+                    throw new InvalidOperationException("There should be one mapping state for each changeset.");
+
+                var (mappingState, currentItems) = mappingStateAndItemsEnumerator.Current;
                 if (mappingState.ChangesetId != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
-
-                // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
-                var currentItems = await downloadItemsLookahead.CurrentTask;
-
-                if (changesetIndex + 1 < changesets.Count)
-                {
-                    // Look ahead so that we know the set of download scopes we'll be using on the next iteration.
-                    if (!await mappingStatesEnumerator.MoveNextAsync())
-                        throw new InvalidOperationException("There should be one mapping state for each changeset.");
-
-                    var downloadScopes = PathUtils.GetNonOverlappingPaths(
-                        mappingStatesEnumerator.Current.BranchMappings.Values.Select(mapping => mapping.RootDirectory));
-
-                    downloadItemsLookahead.StartNextTask((changesets[changesetIndex + 1].ChangesetId, downloadScopes));
-                }
 
                 var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
 
@@ -279,7 +267,7 @@ namespace TfvcMigrator
             });
         }
 
-        private static async IAsyncEnumerator<MappingState> GetMappingStatesEnumeratorAsync(
+        private static async IAsyncEnumerable<MappingState> EnumerateMappingStatesAsync(
             TfvcHttpClient client,
             ImmutableArray<RootPathChange> rootPathChanges,
             IReadOnlyList<TfvcChangesetRef> changesets,
