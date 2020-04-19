@@ -151,6 +151,26 @@ namespace TfvcMigrator
                 if (mappingState.ChangesetId != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
+                // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
+                var downloadScopes = PathUtils.GetNonOverlappingPaths(
+                    mappingState.BranchMappings.Values.Select(mapping => mapping.RootDirectory));
+
+                var (guessedDownloadScopes, currentItems) = await downloadItemsLookahead.CurrentTask;
+
+                if (changesetIndex + 1 < changesets.Count)
+                    downloadItemsLookahead.StartNextTask((changesets[changesetIndex + 1].ChangesetId, downloadScopes));
+
+                // Add any items missed due to guessing at the next loop iterations' download scopes.
+                //
+                // This strategy gave a pretty radical improvement, nearly 100% faster. The guessing ahead could be
+                // eliminated by extracting the section that applies topological operations to an enumerable returning
+                // immutable states, and then looking ahead.)
+                currentItems = currentItems.AddRange(await DownloadItemsAsync(
+                    client,
+                    downloadScopes.Where(requiredPath =>
+                        !guessedDownloadScopes.Any(guessedPath => PathUtils.IsOrContains(guessedPath, requiredPath))),
+                    changeset.ChangesetId));
+
                 var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
 
                 foreach (var operation in mappingState.TopologicalOperations)
@@ -187,26 +207,6 @@ namespace TfvcMigrator
                         }
                     }
                 }
-
-                // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
-                var downloadScopes = PathUtils.GetNonOverlappingPaths(
-                    mappingState.BranchMappings.Values.Select(mapping => mapping.RootDirectory));
-
-                var (guessedDownloadScopes, currentItems) = await downloadItemsLookahead.CurrentTask;
-
-                if (changesetIndex + 1 < changesets.Count)
-                    downloadItemsLookahead.StartNextTask((changesets[changesetIndex + 1].ChangesetId, downloadScopes));
-
-                // Add any items missed due to guessing at the next loop iterations' download scopes.
-                //
-                // This strategy gave a pretty radical improvement, nearly 100% faster. The guessing ahead could be
-                // eliminated by extracting the section that applies topological operations to an enumerable returning
-                // immutable states, and then looking ahead.)
-                currentItems = currentItems.AddRange(await DownloadItemsAsync(
-                    client,
-                    downloadScopes.Where(requiredPath =>
-                        !guessedDownloadScopes.Any(guessedPath => PathUtils.IsOrContains(guessedPath, requiredPath))),
-                    changeset.ChangesetId));
 
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
