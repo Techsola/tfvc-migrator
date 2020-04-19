@@ -142,8 +142,18 @@ namespace TfvcMigrator
                 .WithLookahead()
                 .GetAsyncEnumerator();
 
-            foreach (var changeset in changesets)
+            var downloadItemsLookahead = AsyncLookahead.Create(
+                async input => (
+                    input.DownloadScopes,
+                    Items: await DownloadItemsAsync(client, input.DownloadScopes, input.Changeset)),
+                initialInput: (
+                    Changeset: master.CreationChangeset,
+                    DownloadScopes: ImmutableArray.Create(master.Path)));
+
+            for (var changesetIndex = 0; changesetIndex < changesets.Count; changesetIndex++)
             {
+                var changeset = changesets[changesetIndex];
+
                 ReportProgress(changeset.ChangesetId, changesets.Count, timedProgress);
 
                 var hasTopologicalOperation = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
@@ -210,10 +220,24 @@ namespace TfvcMigrator
                 }
 
                 // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
-                var currentItems = await DownloadItemsAsync(
+                var downloadScopes = PathUtils.GetNonOverlappingPaths(
+                    mappings.Values.Select(mapping => mapping.RootDirectory));
+
+                var (guessedDownloadScopes, currentItems) = await downloadItemsLookahead.CurrentTask;
+
+                if (changesetIndex + 1 < changesets.Count)
+                    downloadItemsLookahead.StartNextTask((changesets[changesetIndex + 1].ChangesetId, downloadScopes));
+
+                // Add any items missed due to guessing at the next loop iterations' download scopes.
+                //
+                // This strategy gave a pretty radical improvement, nearly 100% faster. The guessing ahead could be
+                // eliminated by extracting the section that applies topological operations to an enumerable returning
+                // immutable states, and then looking ahead.)
+                currentItems = currentItems.AddRange(await DownloadItemsAsync(
                     client,
-                    mappings.Values.Select(mapping => mapping.RootDirectory),
-                    changeset.ChangesetId);
+                    downloadScopes.Where(requiredPath =>
+                        !guessedDownloadScopes.Any(guessedPath => PathUtils.IsOrContains(guessedPath, requiredPath))),
+                    changeset.ChangesetId));
 
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
@@ -325,14 +349,16 @@ namespace TfvcMigrator
 
         private static async Task<ImmutableArray<TfvcItem>> DownloadItemsAsync(TfvcHttpClient client, IEnumerable<string> scopePaths, int changeset)
         {
+            var union = PathUtils.GetNonOverlappingPaths(scopePaths);
+            if (union.IsEmpty) return ImmutableArray<TfvcItem>.Empty;
+
             var version = new TfvcVersionDescriptor(
                 TfvcVersionOption.None,
                 TfvcVersionType.Changeset,
                 changeset.ToString(CultureInfo.InvariantCulture));
 
-            var results = await Task.WhenAll(
-                PathUtils.GetNonOverlappingPaths(scopePaths).Select(scopePath =>
-                     client.GetItemsAsync(scopePath, VersionControlRecursionType.Full, versionDescriptor: version)));
+            var results = await Task.WhenAll(union.Select(scopePath =>
+                client.GetItemsAsync(scopePath, VersionControlRecursionType.Full, versionDescriptor: version)));
 
             return results.SelectMany(list => list).ToImmutableArray();
         }
