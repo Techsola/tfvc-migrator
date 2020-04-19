@@ -331,34 +331,10 @@ namespace TfvcMigrator
                 changeset.ToString(CultureInfo.InvariantCulture));
 
             var results = await Task.WhenAll(
-                GetNonOverlappingPaths(scopePaths).Select(scopePath =>
+                PathUtils.GetNonOverlappingPaths(scopePaths).Select(scopePath =>
                      client.GetItemsAsync(scopePath, VersionControlRecursionType.Full, versionDescriptor: version)));
 
             return results.SelectMany(list => list).ToImmutableArray();
-        }
-
-        private static ImmutableArray<string> GetNonOverlappingPaths(IEnumerable<string> paths)
-        {
-            var nonOverlappingPaths = ImmutableArray.CreateBuilder<string>();
-
-            foreach (var path in paths)
-            {
-                if (!PathUtils.IsAbsolute(path))
-                    throw new ArgumentException("Paths must be absolute.", nameof(paths));
-
-                if (nonOverlappingPaths.Any(previous => PathUtils.IsOrContains(previous, path)))
-                    continue;
-
-                for (var i = nonOverlappingPaths.Count - 1; i >= 0; i--)
-                {
-                    if (PathUtils.Contains(path, nonOverlappingPaths[i]))
-                        nonOverlappingPaths.RemoveAt(i);
-                }
-
-                nonOverlappingPaths.Add(path);
-            }
-
-            return nonOverlappingPaths.ToImmutable();
         }
 
         private static string GetValidGitBranchName(string tfsBranchName)

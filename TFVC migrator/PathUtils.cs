@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 
 namespace TfvcMigrator
 {
@@ -112,6 +115,30 @@ namespace TfvcMigrator
             }
 
             return (string.Empty, string.Empty);
+        }
+
+        public static ImmutableArray<string> GetNonOverlappingPaths(IEnumerable<string> paths)
+        {
+            var nonOverlappingPaths = ImmutableArray.CreateBuilder<string>();
+
+            foreach (var path in paths)
+            {
+                if (!IsAbsolute(path))
+                    throw new ArgumentException("Paths must be absolute.", nameof(paths));
+
+                if (nonOverlappingPaths.Any(previous => IsOrContains(previous, path)))
+                    continue;
+
+                for (var i = nonOverlappingPaths.Count - 1; i >= 0; i--)
+                {
+                    if (Contains(path, nonOverlappingPaths[i]))
+                        nonOverlappingPaths.RemoveAt(i);
+                }
+
+                nonOverlappingPaths.Add(path);
+            }
+
+            return nonOverlappingPaths.ToImmutable();
         }
     }
 }
