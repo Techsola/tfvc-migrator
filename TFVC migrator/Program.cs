@@ -191,7 +191,7 @@ namespace TfvcMigrator
 
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
-                var message = changeset.Comment + "\n\nMigrated from CS" + changeset.ChangesetId;
+                var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
 
                 foreach (var (branch, mapping) in mappingState.BranchMappings)
                 {
