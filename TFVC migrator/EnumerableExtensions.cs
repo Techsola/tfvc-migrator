@@ -53,5 +53,15 @@ namespace TfvcMigrator
         {
             return source.Where(predicate).FirstOrNull();
         }
+
+        public static IEnumerable<T> Values<T>(this IEnumerable<T?> source)
+            where T : struct
+        {
+            foreach (var nullable in source)
+            {
+                if (nullable is { } value)
+                    yield return value;
+            }
+        }
     }
 }

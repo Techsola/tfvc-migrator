@@ -8,9 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\.editorconfig" Link=".editorconfig" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="LibGit2Sharp" Version="0.27.0-preview-0034" />
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.153.0" />
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.20158.1" />
+    <PackageReference Include="TaskTupleAwaiter" Version="1.2.0" />
   </ItemGroup>
 
 </Project>

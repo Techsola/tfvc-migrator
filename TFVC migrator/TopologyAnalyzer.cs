@@ -95,11 +95,18 @@ namespace TfvcMigrator
             }
         }
 
-        private static (ImmutableHashSet<BranchOperation> Branches, ImmutableHashSet<MergeOperation> Merges)
+        private static (ImmutableArray<BranchOperation> Branches, ImmutableArray<MergeOperation> Merges)
             GetBranchAndMergeOperations(IReadOnlyCollection<TfvcChange> changesetChanges, BranchIdentifier branchIdentifier)
         {
-            var branches = ImmutableHashSet.CreateBuilder<BranchOperation>();
-            var merges = ImmutableHashSet.CreateBuilder<MergeOperation>();
+            var maxChangesetsByBranchOperation = ImmutableDictionary.CreateBuilder<
+                (BranchIdentity SourceBranch, string SourceBranchPath, string TargetPath),
+                int>();
+
+            var maxChangesetsByMergeOperation = ImmutableDictionary.CreateBuilder<
+                (BranchIdentity SourceBranch, string SourceBranchPath, BranchIdentity TargetBranch, string TargetBranchPath),
+                int>();
+
+            var changeset = changesetChanges.First().Item.ChangesetVersion;
 
             foreach (var change in changesetChanges)
             {
@@ -112,24 +119,45 @@ namespace TfvcMigrator
 
                 if (change.ChangeType.HasFlag(VersionControlChangeType.Merge))
                 {
-                    var targetBranch = branchIdentifier.FindBranchIdentity(change.Item.ChangesetVersion - 1, change.Item.Path)
+                    var targetBranch = branchIdentifier.FindBranchIdentity(changeset - 1, change.Item.Path)
                         ?? throw new NotImplementedException();
 
-                    merges.Add(new MergeOperation(change.Item.ChangesetVersion, sourceBranch, sourcePath, targetBranch, targetPath));
+                    var operation = (sourceBranch, sourcePath, targetBranch, targetPath);
+
+                    if (!maxChangesetsByMergeOperation.TryGetValue(operation, out var max) || max < source.VersionTo)
+                        maxChangesetsByMergeOperation[operation] = source.VersionTo;
                 }
                 else
                 {
-                    branches.Add(new BranchOperation(
-                        sourceBranch,
-                        sourcePath,
-                        newBranch: new BranchIdentity(change.Item.ChangesetVersion, targetPath)));
+                    var operation = (sourceBranch, sourcePath, targetPath);
+
+                    if (!maxChangesetsByBranchOperation.TryGetValue(operation, out var max) || max < source.VersionTo)
+                        maxChangesetsByBranchOperation[operation] = source.VersionTo;
                 }
             }
 
-            if (merges.Count > 1)
+            var branches = maxChangesetsByBranchOperation
+                .Select(maxChangesetByBranchOperation => new BranchOperation(
+                    maxChangesetByBranchOperation.Key.SourceBranch,
+                    sourceBranchChangeset: maxChangesetByBranchOperation.Value,
+                    maxChangesetByBranchOperation.Key.SourceBranchPath,
+                    newBranch: new BranchIdentity(changeset, maxChangesetByBranchOperation.Key.TargetPath)))
+                .ToImmutableArray();
+
+            var merges = maxChangesetsByMergeOperation
+                .Select(maxChangesetByMergeOperation => new MergeOperation(
+                    changeset,
+                    maxChangesetByMergeOperation.Key.SourceBranch,
+                    sourceBranchChangeset: maxChangesetByMergeOperation.Value,
+                    maxChangesetByMergeOperation.Key.SourceBranchPath,
+                    maxChangesetByMergeOperation.Key.TargetBranch,
+                    maxChangesetByMergeOperation.Key.TargetBranchPath))
+                .ToImmutableArray();
+
+            if (merges.Length > 1)
             {
                 // Two items is very rare and three hasn't been seen yet, so don't spare anything towards optimization.
-                merges.ExceptWith(merges
+                merges = merges.RemoveRange(merges
                     .GroupBy(m => (m.SourceBranch, m.TargetBranch))
                     .SelectMany(mergesWithSameSourceAndTargetBranch =>
                         mergesWithSameSourceAndTargetBranch.Where(merge =>
@@ -139,7 +167,7 @@ namespace TfvcMigrator
                                 && PathUtils.IsOrContains(otherMerge.TargetBranchPath, merge.TargetBranchPath)))));
             }
 
-            return (branches.ToImmutable(), merges.ToImmutable());
+            return (branches, merges);
         }
     }
 }

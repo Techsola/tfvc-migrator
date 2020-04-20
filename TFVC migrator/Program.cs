@@ -13,6 +13,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TaskTupleAwaiter;
 using TfvcMigrator.Operations;
 
 namespace TfvcMigrator
@@ -93,20 +94,24 @@ namespace TfvcMigrator
             using var connection = new VssConnection(projectCollectionUrl, new VssCredentials());
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
-            var changesets = await client.GetChangesetsAsync(
-                maxCommentLength: int.MaxValue,
-                top: int.MaxValue,
-                orderby: "ID asc",
-                searchCriteria: new TfvcChangesetSearchCriteria
-                {
-                    FollowRenames = true,
-                    ItemPath = rootPath,
-                    FromId = minChangeset ?? 0,
-                    ToId = maxChangeset ?? 0,
-                }).ConfigureAwait(false);
+            var (changesets, labelsByChangeset) = await (
+                client.GetChangesetsAsync(
+                    maxCommentLength: int.MaxValue,
+                    top: int.MaxValue,
+                    orderby: "ID asc",
+                    searchCriteria: new TfvcChangesetSearchCriteria
+                    {
+                        FollowRenames = true,
+                        ItemPath = rootPath,
+                        FromId = minChangeset ?? 0,
+                        ToId = maxChangeset ?? 0,
+                    }),
+                GetLabelsByChangesetAsync(client, rootPath)
+            ).ConfigureAwait(false);
 
             var unmappedAuthors = changesets.Select(c => c.Author)
                 .Concat(changesets.Select(c => c.CheckedInBy))
+                .Concat(labelsByChangeset.SelectMany(l => l.Labels, (_, l) => l.Owner))
                 .Select(identity => identity.UniqueName)
                 .Where(name => !authorsLookup.ContainsKey(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -122,7 +127,6 @@ namespace TfvcMigrator
 
             Console.WriteLine("Downloading changesets and converting to commits...");
 
-            var labelsByChangesetTask = GetLabelsByChangesetAsync(client, rootPath);
 
             var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
 
@@ -132,7 +136,7 @@ namespace TfvcMigrator
 
             var timedProgress = TimedProgress.Start();
 
-            var commitsByChangeset = new Dictionary<int, ImmutableArray<Commit>>();
+            var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch)>>();
 
             await using var mappingStateAndItemsEnumerator =
                 EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
@@ -158,7 +162,7 @@ namespace TfvcMigrator
                 if (mappingState.Changeset != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
-                var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, Commit? AdditionalParent)>();
+                var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, (int Changeset, BranchIdentity Branch)? AdditionalParent)>();
 
                 foreach (var operation in mappingState.TopologicalOperations)
                 {
@@ -167,7 +171,7 @@ namespace TfvcMigrator
                         case BranchOperation branch:
                         {
                             // Don't copy to heads here because the previous head will be removed if not null.
-                            branchesWithTopologicalOperations.Add((branch.NewBranch, AdditionalParent: heads[branch.SourceBranch].Tip));
+                            branchesWithTopologicalOperations.Add((branch.NewBranch, AdditionalParent: (branch.SourceBranchChangeset, branch.SourceBranch)));
                             break;
                         }
 
@@ -180,7 +184,7 @@ namespace TfvcMigrator
 
                         case MergeOperation merge:
                         {
-                            branchesWithTopologicalOperations.Add((merge.TargetBranch, AdditionalParent: heads[merge.SourceBranch].Tip));
+                            branchesWithTopologicalOperations.Add((merge.TargetBranch, AdditionalParent: (merge.SourceBranchChangeset, merge.SourceBranch)));
                             break;
                         }
 
@@ -195,12 +199,19 @@ namespace TfvcMigrator
                     }
                 }
 
+                var mappedBranchesInTopologicalOrder = mappingState.BranchMappings.StableTopologicalSort(
+                    keySelector: mappingByBranch => mappingByBranch.Key,
+                    dependenciesSelector: mappingByBranch => branchesWithTopologicalOperations
+                        .Where(b => b.Branch == mappingByBranch.Key)
+                        .Select(b => b.AdditionalParent?.Branch)
+                        .Values());
+
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
-                var commits = ImmutableArray.CreateBuilder<Commit>();
+                var commits = new List<(Commit Commit, BranchIdentity Branch)>();
 
-                foreach (var (branch, mapping) in mappingState.BranchMappings)
+                foreach (var (branch, mapping) in mappedBranchesInTopologicalOrder)
                 {
                     var builder = new TreeDefinition();
 
@@ -234,8 +245,22 @@ namespace TfvcMigrator
                     foreach (var (_, additionalParent) in branchesWithTopologicalOperations.Where(t => t.Branch == branch))
                     {
                         requireCommit = true;
-                        if (additionalParent is { }) parents.Add(additionalParent);
+
+                        if (additionalParent is var (parentChangeset, parentBranch))
+                        {
+                            if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
+                                && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                            {
+                                parents.Add(commit);
+                            }
+                            else
+                            {
+                                throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
+                            }
+                        }
                     }
+
+                    if (!commits.Any()) commitsByChangeset.Add(changeset.ChangesetId, commits);
 
                     var tree = repo.ObjectDatabase.CreateTree(builder);
 
@@ -243,7 +268,8 @@ namespace TfvcMigrator
                     {
                         var newBranchName = branch == mappingState.Master ? "master" : GetValidGitBranchName(branch.Path);
                         var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
-                        commits.Add(commit);
+
+                        commits.Add((commit, branch));
 
                         // Make sure HEAD is not pointed at a branch
                         repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
@@ -251,26 +277,29 @@ namespace TfvcMigrator
                         if (head is { }) repo.Branches.Remove(head);
                         heads[branch] = repo.Branches.Add(newBranchName, commit);
                     }
+                    else if (head is { })
+                    {
+                        // Even though there is not a new commit, make it possible to find the commit that should be the
+                        // parent commit if the current changeset is a parent changeset.
+                        commits.Add((head.Tip, branch));
+                    }
                 }
-
-                if (commits.Any())
-                    commitsByChangeset.Add(changeset.ChangesetId, commits.ToImmutable());
 
                 timedProgress.Increment();
             }
 
-            foreach (var (changeset, labels) in await labelsByChangesetTask)
+            foreach (var (changeset, labels) in labelsByChangeset)
             {
                 if (commitsByChangeset.TryGetValue(changeset, out var commits))
                 {
-                    if (commits.Length > 1)
+                    if (commits.Count > 1)
                         throw new NotImplementedException("TODO: Add branch suffix to tags since same commit was replayed in multiple branches");
 
                     foreach (var label in labels)
                     {
                         repo.Tags.Add(
                             GetValidGitBranchName(label.Name),
-                            commits.Single(),
+                            commits.Single().Commit,
                             new Signature(authorsLookup[label.Owner.UniqueName], label.ModifiedDate),
                             label.Description);
                     }
