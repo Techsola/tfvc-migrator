@@ -128,7 +128,7 @@ namespace TfvcMigrator
             Console.WriteLine("Downloading changesets and converting to commits...");
 
 
-            var dummyBlob = repo.ObjectDatabase.CreateBlob(Stream.Null);
+            var emptyBlob = new Lazy<Blob>(() => repo.ObjectDatabase.CreateBlob(Stream.Null));
 
             var initialBranch = new BranchIdentity(changesets.First().ChangesetId, rootPath);
 
@@ -136,6 +136,7 @@ namespace TfvcMigrator
 
             var timedProgress = TimedProgress.Start();
 
+            var downloadedBlobsByHash = new Dictionary<string, Blob>();
             var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch)>>();
 
             await using var mappingStateAndItemsEnumerator =
@@ -163,6 +164,31 @@ namespace TfvcMigrator
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
                 var mappedItems = MapItemsToDownloadSources(mappingState.BranchMappingsInDependentOperationOrder, currentItems);
+
+                var toDownload = mappedItems.Values
+                    .SelectMany(items => items, (_, item) => item.DownloadSource)
+                    .Where(source => source.Size > 0 && !downloadedBlobsByHash.ContainsKey(source.HashValue))
+                    .GroupBy(source => source.HashValue, (_, sources) => sources.First())
+                    .ToImmutableArray();
+
+                if (toDownload.Any())
+                {
+                    foreach (var source in toDownload)
+                    {
+                        var versionDescriptor = new TfvcVersionDescriptor(
+                            TfvcVersionOption.None,
+                            TfvcVersionType.Changeset,
+                            source.ChangesetVersion.ToString(CultureInfo.InvariantCulture));
+
+                        await using var stream = await client.GetItemContentAsync(source.Path, versionDescriptor: versionDescriptor).ConfigureAwait(false);
+                        var blob = repo.ObjectDatabase.CreateBlob(stream);
+
+                        if (blob.Size != source.Size)
+                            throw new NotImplementedException("Download stream length does not match expected file size.");
+
+                        downloadedBlobsByHash.Add(source.HashValue, blob);
+                    }
+                }
 
                 foreach (var operation in mappingState.TopologicalOperations)
                 {
@@ -195,7 +221,11 @@ namespace TfvcMigrator
 
                     foreach (var (gitRepositoryPath, downloadSource) in mappedItems[branch])
                     {
-                        builder.Add(gitRepositoryPath, dummyBlob, Mode.NonExecutableFile);
+                        var blob = downloadSource.Size > 0
+                            ? downloadedBlobsByHash[downloadSource.HashValue]
+                            : emptyBlob.Value;
+
+                        builder.Add(gitRepositoryPath, blob, Mode.NonExecutableFile);
                     }
 
                     var parents = new List<Commit>();
