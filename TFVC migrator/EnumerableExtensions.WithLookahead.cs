@@ -68,16 +68,24 @@ namespace TfvcMigrator
 
             private async Task<bool> HandleCompletion(ValueTask<bool> nextTask)
             {
-                var result = await nextTask.ConfigureAwait(false);
-                OnMoveNextCompleted(result);
-                return result;
+                var succeededWithFalse = false;
+                try
+                {
+                    var result = await nextTask.ConfigureAwait(false);
+                    succeededWithFalse = !result;
+                    return result;
+                }
+                finally
+                {
+                    OnMoveNextCompleted(succeededWithFalse);
+                }
             }
 
-            private void OnMoveNextCompleted(bool result)
+            private void OnMoveNextCompleted(bool succeededWithFalse)
             {
-                cachedCurrentValue = result ? inner.Current : default!;
+                cachedCurrentValue = succeededWithFalse ? default! : inner.Current;
                 useCachedCurrentValue = true;
-                if (result) nextTask = inner.MoveNextAsync();
+                nextTask = succeededWithFalse ? new ValueTask<bool>(false) : inner.MoveNextAsync();
             }
 
             public ValueTask DisposeAsync() => inner.DisposeAsync();
