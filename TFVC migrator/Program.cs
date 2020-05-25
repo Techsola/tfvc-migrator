@@ -94,7 +94,7 @@ namespace TfvcMigrator
             using var connection = new VssConnection(projectCollectionUrl, new VssCredentials());
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
-            var (changesets, labelsByChangeset) = await (
+            var (changesets, allLabels) = await (
                 client.GetChangesetsAsync(
                     maxCommentLength: int.MaxValue,
                     top: int.MaxValue,
@@ -106,12 +106,18 @@ namespace TfvcMigrator
                         FromId = minChangeset ?? 0,
                         ToId = maxChangeset ?? 0,
                     }),
-                GetLabelsByChangesetAsync(client, rootPath)
+                client.GetLabelsAsync(
+                    new TfvcLabelRequestData
+                    {
+                        MaxItemCount = int.MaxValue,
+                        LabelScope = rootPath,
+                    },
+                    top: int.MaxValue)
             ).ConfigureAwait(false);
 
             var unmappedAuthors = changesets.Select(c => c.Author)
                 .Concat(changesets.Select(c => c.CheckedInBy))
-                .Concat(labelsByChangeset.SelectMany(l => l.Labels, (_, l) => l.Owner))
+                .Concat(allLabels.Select(l => l.Owner))
                 .Select(identity => identity.UniqueName)
                 .Where(name => !authorsLookup.ContainsKey(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -127,6 +133,7 @@ namespace TfvcMigrator
 
             Console.WriteLine("Downloading changesets and converting to commits...");
 
+            var labelsByChangesetTask = GetLabelsByChangesetAsync(client, allLabels);
 
             var emptyBlob = new Lazy<Blob>(() => repo.ObjectDatabase.CreateBlob(Stream.Null));
 
@@ -291,7 +298,7 @@ namespace TfvcMigrator
                 timedProgress.Increment();
             }
 
-            foreach (var (changeset, labels) in labelsByChangeset)
+            foreach (var (changeset, labels) in await labelsByChangesetTask.ConfigureAwait(false))
             {
                 if (commitsByChangeset.TryGetValue(changeset, out var commits))
                 {
@@ -348,23 +355,15 @@ namespace TfvcMigrator
 
         private static async Task<ImmutableArray<(int Changeset, ImmutableArray<TfvcLabelRef> Labels)>> GetLabelsByChangesetAsync(
             TfvcHttpClient client,
-            string rootPath)
+            List<TfvcLabelRef> allLabels)
         {
-            var labels = await client.GetLabelsAsync(
-                new TfvcLabelRequestData
-                {
-                    MaxItemCount = int.MaxValue,
-                    LabelScope = rootPath,
-                },
-                top: int.MaxValue);
-
-            var changesetsByLabelIndex = await labels
+            var changesetsByLabelIndex = await allLabels
                 .SelectAwait(async label => (await client.GetLabelItemsAsync(label.Id.ToString(CultureInfo.InvariantCulture), top: int.MaxValue))
                     .Max(item => item.ChangesetVersion))
                 .ToImmutableArrayAsync();
 
             return changesetsByLabelIndex
-                .Zip(labels)
+                .Zip(allLabels)
                 .GroupBy(pair => pair.First, (changeset, pairs) => (
                     changeset,
                     pairs.Select(p => p.Second).ToImmutableArray()))
