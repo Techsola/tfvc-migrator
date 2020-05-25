@@ -162,7 +162,7 @@ namespace TfvcMigrator
                 if (mappingState.Changeset != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
-                var branchesWithTopologicalOperations = new List<(BranchIdentity Branch, (int Changeset, BranchIdentity Branch)? AdditionalParent)>();
+                var additionalParents = new List<(BranchIdentity Branch, int ParentChangeset, BranchIdentity ParentBranch)>();
 
                 foreach (var operation in mappingState.TopologicalOperations)
                 {
@@ -171,7 +171,7 @@ namespace TfvcMigrator
                         case BranchOperation branch:
                         {
                             // Don't copy to heads here because the previous head will be removed if not null.
-                            branchesWithTopologicalOperations.Add((branch.NewBranch, AdditionalParent: (branch.SourceBranchChangeset, branch.SourceBranch)));
+                            additionalParents.Add((branch.NewBranch, branch.SourceBranchChangeset, branch.SourceBranch));
                             break;
                         }
 
@@ -184,7 +184,7 @@ namespace TfvcMigrator
 
                         case MergeOperation merge:
                         {
-                            branchesWithTopologicalOperations.Add((merge.TargetBranch, AdditionalParent: (merge.SourceBranchChangeset, merge.SourceBranch)));
+                            additionalParents.Add((merge.TargetBranch, merge.SourceBranchChangeset, merge.SourceBranch));
                             break;
                         }
 
@@ -192,8 +192,6 @@ namespace TfvcMigrator
                         {
                             if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
                             heads.Add(rename.NewIdentity, head);
-
-                            branchesWithTopologicalOperations.Add((rename.NewIdentity, AdditionalParent: null));
                             break;
                         }
                     }
@@ -201,10 +199,9 @@ namespace TfvcMigrator
 
                 var mappedBranchesInTopologicalOrder = mappingState.BranchMappings.StableTopologicalSort(
                     keySelector: mappingByBranch => mappingByBranch.Key,
-                    dependenciesSelector: mappingByBranch => branchesWithTopologicalOperations
+                    dependenciesSelector: mappingByBranch => additionalParents
                         .Where(b => b.Branch == mappingByBranch.Key)
-                        .Select(b => b.AdditionalParent?.Branch)
-                        .Values());
+                        .Select(b => b.ParentBranch));
 
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
@@ -241,19 +238,16 @@ namespace TfvcMigrator
                     var head = CollectionExtensions.GetValueOrDefault(heads, branch);
                     if (head is { }) parents.Add(head.Tip);
 
-                    foreach (var (_, additionalParent) in branchesWithTopologicalOperations.Where(t => t.Branch == branch))
+                    foreach (var (_, parentChangeset, parentBranch) in additionalParents.Where(t => t.Branch == branch))
                     {
-                        if (additionalParent is var (parentChangeset, parentBranch))
+                        if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
+                            && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
                         {
-                            if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
-                                && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
-                            {
-                                parents.Add(commit);
-                            }
-                            else
-                            {
-                                throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
-                            }
+                            parents.Add(commit);
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
                         }
                     }
 
