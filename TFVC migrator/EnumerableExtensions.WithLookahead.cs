@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -36,8 +37,6 @@ namespace TfvcMigrator
 
             private readonly IAsyncEnumerator<T> inner;
             private ValueTask<bool> nextTask;
-            private bool useCachedCurrentValue;
-            private T cachedCurrentValue = default!;
 
             public LookaheadEnumerator(IAsyncEnumerator<T> inner)
             {
@@ -45,7 +44,8 @@ namespace TfvcMigrator
                 nextTask = inner.MoveNextAsync();
             }
 
-            public T Current => useCachedCurrentValue ? cachedCurrentValue : inner.Current;
+            [AllowNull]
+            public T Current { get; private set; } = default;
 
             public ValueTask<bool> MoveNextAsync()
             {
@@ -54,15 +54,17 @@ namespace TfvcMigrator
 
                 if (nextTask.IsCompleted)
                 {
-                    var result = nextTask.Result;
-
                     if (nextTask.IsCompletedSuccessfully)
-                        OnMoveNextCompleted(result);
+                    {
+                        var result = nextTask.Result;
+                        OnMoveNextCompleted(succeededWithFalse: !result);
+                        return new ValueTask<bool>(result);
+                    }
 
-                    return new ValueTask<bool>(result);
+                    OnMoveNextCompleted(succeededWithFalse: false);
+                    return nextTask;
                 }
 
-                useCachedCurrentValue = false;
                 return new ValueTask<bool>(HandleCompletion(nextTask));
             }
 
@@ -83,8 +85,7 @@ namespace TfvcMigrator
 
             private void OnMoveNextCompleted(bool succeededWithFalse)
             {
-                cachedCurrentValue = succeededWithFalse ? default! : inner.Current;
-                useCachedCurrentValue = true;
+                Current = succeededWithFalse ? default : inner.Current;
                 nextTask = succeededWithFalse ? new ValueTask<bool>(false) : inner.MoveNextAsync();
             }
 
