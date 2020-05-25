@@ -162,6 +162,8 @@ namespace TfvcMigrator
                 if (mappingState.Changeset != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
+                var mappedItems = MapItemsToDownloadSources(mappingState.BranchMappingsInDependentOperationOrder, currentItems);
+
                 foreach (var operation in mappingState.TopologicalOperations)
                 {
                     switch (operation)
@@ -187,27 +189,13 @@ namespace TfvcMigrator
                 var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
                 var commits = new List<(Commit Commit, BranchIdentity Branch)>();
 
-                foreach (var (branch, mapping) in mappingState.BranchMappingsInDependentOperationOrder)
+                foreach (var (branch, _) in mappingState.BranchMappingsInDependentOperationOrder)
                 {
                     var builder = new TreeDefinition();
 
-                    foreach (var item in currentItems)
+                    foreach (var (gitRepositoryPath, downloadSource) in mappedItems[branch])
                     {
-                        if (item.IsFolder || item.IsBranch) continue;
-                        if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
-
-                        if (mappingState.BranchMappingsInDependentOperationOrder.Any(branchMapping =>
-                            branchMapping.Branch != branch
-                            && PathUtils.IsOrContains(branchMapping.Branch.Path, item.Path)
-                            && PathUtils.Contains(mapping.RootDirectory, branchMapping.Branch.Path)))
-                        {
-                            continue;
-                        }
-
-                        if (mapping.GetGitRepositoryPath(item.Path) is { } path)
-                        {
-                            builder.Add(path, dummyBlob, Mode.NonExecutableFile);
-                        }
+                        builder.Add(gitRepositoryPath, dummyBlob, Mode.NonExecutableFile);
                     }
 
                     var parents = new List<Commit>();
@@ -283,6 +271,40 @@ namespace TfvcMigrator
             }
 
             Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
+        }
+
+        private static ImmutableDictionary<BranchIdentity, ImmutableArray<(string GitRepositoryPath, TfvcItem DownloadSource)>> MapItemsToDownloadSources(
+            ImmutableArray<(BranchIdentity Branch, RepositoryBranchMapping Mapping)> branchMappingsInDependentOperationOrder,
+            ImmutableArray<TfvcItem> currentItems)
+        {
+            var builder = ImmutableDictionary.CreateBuilder<BranchIdentity, ImmutableArray<(string GitRepositoryPath, TfvcItem DownloadSource)>>();
+
+            var itemsBuilder = ImmutableArray.CreateBuilder<(string GitRepositoryPath, TfvcItem DownloadSource)>();
+
+            foreach (var (branch, mapping) in branchMappingsInDependentOperationOrder)
+            {
+                foreach (var item in currentItems)
+                {
+                    if (item.IsFolder || item.IsBranch) continue;
+                    if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
+
+                    if (branchMappingsInDependentOperationOrder.Any(other =>
+                        other.Branch != branch
+                        && PathUtils.IsOrContains(other.Branch.Path, item.Path)
+                        && PathUtils.Contains(mapping.RootDirectory, other.Branch.Path)))
+                    {
+                        continue;
+                    }
+
+                    if (mapping.GetGitRepositoryPath(item.Path) is { } path)
+                        itemsBuilder.Add((path, item));
+                }
+
+                builder.Add(branch, itemsBuilder.ToImmutable());
+                itemsBuilder.Clear();
+            }
+
+            return builder.ToImmutable();
         }
 
         private static async Task<ImmutableArray<(int Changeset, ImmutableArray<TfvcLabelRef> Labels)>> GetLabelsByChangesetAsync(
