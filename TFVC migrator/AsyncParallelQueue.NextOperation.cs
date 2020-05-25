@@ -23,7 +23,7 @@ namespace TfvcMigrator
 
             public bool IsSubscribe([NotNullWhen(true)] out Task<T>? task, out int taskIndex)
             {
-                task = this.task;
+                task = this.task!;
                 taskIndex = this.taskIndex;
                 return kind == 1;
             }
