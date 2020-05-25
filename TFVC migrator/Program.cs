@@ -91,8 +91,12 @@ namespace TfvcMigrator
 
             using var repo = new Repository(Repository.Init(outputDirectory));
 
+            Console.WriteLine("Connecting...");
+
             using var connection = new VssConnection(projectCollectionUrl, new VssCredentials());
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
+
+            Console.WriteLine("Downloading changeset and label metadata...");
 
             var (changesets, allLabels) = await (
                 client.GetChangesetsAsync(
