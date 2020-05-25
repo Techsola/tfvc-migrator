@@ -162,29 +162,14 @@ namespace TfvcMigrator
                 if (mappingState.Changeset != changeset.ChangesetId)
                     throw new InvalidOperationException("Enumerator and loop are out of sync");
 
-                var additionalParents = new List<(BranchIdentity Branch, int ParentChangeset, BranchIdentity ParentBranch)>();
-
                 foreach (var operation in mappingState.TopologicalOperations)
                 {
                     switch (operation)
                     {
-                        case BranchOperation branch:
-                        {
-                            // Don't copy to heads here because the previous head will be removed if not null.
-                            additionalParents.Add((branch.NewBranch, branch.SourceBranchChangeset, branch.SourceBranch));
-                            break;
-                        }
-
                         case DeleteOperation delete:
                         {
                             if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
                             repo.Branches.Remove(head);
-                            break;
-                        }
-
-                        case MergeOperation merge:
-                        {
-                            additionalParents.Add((merge.TargetBranch, merge.SourceBranchChangeset, merge.SourceBranch));
                             break;
                         }
 
@@ -199,7 +184,7 @@ namespace TfvcMigrator
 
                 var mappedBranchesInTopologicalOrder = mappingState.BranchMappings.StableTopologicalSort(
                     keySelector: mappingByBranch => mappingByBranch.Key,
-                    dependenciesSelector: mappingByBranch => additionalParents
+                    dependenciesSelector: mappingByBranch => mappingState.AdditionalParents
                         .Where(b => b.Branch == mappingByBranch.Key)
                         .Select(b => b.ParentBranch));
 
@@ -238,7 +223,7 @@ namespace TfvcMigrator
                     var head = CollectionExtensions.GetValueOrDefault(heads, branch);
                     if (head is { }) parents.Add(head.Tip);
 
-                    foreach (var (_, parentChangeset, parentBranch) in additionalParents.Where(t => t.Branch == branch))
+                    foreach (var (_, parentChangeset, parentBranch) in mappingState.AdditionalParents.Where(t => t.Branch == branch))
                     {
                         if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
                             && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
@@ -366,10 +351,13 @@ namespace TfvcMigrator
                 .WithLookahead()
                 .GetAsyncEnumerator();
 
+            var additionalParents = ImmutableArray.CreateBuilder<(BranchIdentity Branch, int ParentChangeset, BranchIdentity ParentBranch)>();
+
             for (var i = 0; i < changesets.Count; i++)
             {
                 var changeset = changesets[i];
                 var topologicalOperations = ImmutableArray<TopologicalOperation>.Empty;
+                additionalParents.Clear();
 
                 if (i > 0)
                 {
@@ -388,6 +376,8 @@ namespace TfvcMigrator
                         {
                             case BranchOperation branch:
                             {
+                                additionalParents.Add((branch.NewBranch, branch.SourceBranchChangeset, branch.SourceBranch));
+
                                 var mapping = branchMappings[branch.SourceBranch];
 
                                 mapping = PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory)
@@ -395,6 +385,12 @@ namespace TfvcMigrator
                                     : mapping.WithSubdirectoryMapping(branch.NewBranch.Path, branch.SourceBranchPath);
 
                                 branchMappings.Add(branch.NewBranch, mapping);
+                                break;
+                            }
+
+                            case MergeOperation merge:
+                            {
+                                additionalParents.Add((merge.TargetBranch, merge.SourceBranchChangeset, merge.SourceBranch));
                                 break;
                             }
 
@@ -419,6 +415,7 @@ namespace TfvcMigrator
                 yield return new MappingState(
                     changeset.ChangesetId,
                     topologicalOperations,
+                    additionalParents.ToImmutable(),
                     master,
                     branchMappings.ToImmutable());
             }
