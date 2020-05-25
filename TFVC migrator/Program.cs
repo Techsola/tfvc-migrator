@@ -146,7 +146,7 @@ namespace TfvcMigrator
                         Items: await DownloadItemsAsync(
                             client,
                             PathUtils.GetNonOverlappingPaths(
-                                state.BranchMappings.Values.Select(mapping => mapping.RootDirectory)),
+                                state.BranchMappingsInDependentOperationOrder.Select(branchMapping => branchMapping.Mapping.RootDirectory)),
                             state.Changeset)))
                     .WithLookahead()
                     .GetAsyncEnumerator();
@@ -182,18 +182,12 @@ namespace TfvcMigrator
                     }
                 }
 
-                var mappedBranchesInTopologicalOrder = mappingState.BranchMappings.StableTopologicalSort(
-                    keySelector: mappingByBranch => mappingByBranch.Key,
-                    dependenciesSelector: mappingByBranch => mappingState.AdditionalParents
-                        .Where(b => b.Branch == mappingByBranch.Key)
-                        .Select(b => b.ParentBranch));
-
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
                 var commits = new List<(Commit Commit, BranchIdentity Branch)>();
 
-                foreach (var (branch, mapping) in mappedBranchesInTopologicalOrder)
+                foreach (var (branch, mapping) in mappingState.BranchMappingsInDependentOperationOrder)
                 {
                     var builder = new TreeDefinition();
 
@@ -202,10 +196,10 @@ namespace TfvcMigrator
                         if (item.IsFolder || item.IsBranch) continue;
                         if (item.IsSymbolicLink) throw new NotImplementedException("Handle symbolic links");
 
-                        if (mappingState.BranchMappings.Keys.Any(otherBranch =>
-                            otherBranch != branch
-                            && PathUtils.IsOrContains(otherBranch.Path, item.Path)
-                            && PathUtils.Contains(mapping.RootDirectory, otherBranch.Path)))
+                        if (mappingState.BranchMappingsInDependentOperationOrder.Any(branchMapping =>
+                            branchMapping.Branch != branch
+                            && PathUtils.IsOrContains(branchMapping.Branch.Path, item.Path)
+                            && PathUtils.Contains(mapping.RootDirectory, branchMapping.Branch.Path)))
                         {
                             continue;
                         }
@@ -412,12 +406,21 @@ namespace TfvcMigrator
                     }
                 }
 
+                var branchMappingsInTopologicalOrder = branchMappings
+                    .Select(mappingsByBranch => (Branch: mappingsByBranch.Key, Mapping: mappingsByBranch.Value))
+                    .StableTopologicalSort(
+                        keySelector: mappingByBranch => mappingByBranch.Branch,
+                        dependenciesSelector: mappingByBranch => additionalParents
+                            .Where(b => b.Branch == mappingByBranch.Branch)
+                            .Select(b => b.ParentBranch))
+                    .ToImmutableArray();
+
                 yield return new MappingState(
                     changeset.ChangesetId,
                     topologicalOperations,
                     additionalParents.ToImmutable(),
                     master,
-                    branchMappings.ToImmutable());
+                    branchMappingsInTopologicalOrder);
             }
         }
 
