@@ -173,21 +173,30 @@ namespace TfvcMigrator
 
                 if (toDownload.Any())
                 {
-                    foreach (var source in toDownload)
-                    {
-                        var versionDescriptor = new TfvcVersionDescriptor(
-                            TfvcVersionOption.None,
-                            TfvcVersionType.Changeset,
-                            source.ChangesetVersion.ToString(CultureInfo.InvariantCulture));
+                    var results = await toDownload.SelectAwaitParallel(
+                        async source =>
+                        {
+                            var versionDescriptor = new TfvcVersionDescriptor(
+                                TfvcVersionOption.None,
+                                TfvcVersionType.Changeset,
+                                source.ChangesetVersion.ToString(CultureInfo.InvariantCulture));
 
-                        await using var stream = await client.GetItemContentAsync(source.Path, versionDescriptor: versionDescriptor).ConfigureAwait(false);
-                        var blob = repo.ObjectDatabase.CreateBlob(stream);
+                            await using var stream = await client.GetItemContentAsync(source.Path, versionDescriptor: versionDescriptor).ConfigureAwait(false);
 
-                        if (blob.Size != source.Size)
-                            throw new NotImplementedException("Download stream length does not match expected file size.");
+                            Blob blob;
+                            lock (downloadedBlobsByHash)
+                                blob = repo.ObjectDatabase.CreateBlob(stream);
 
-                        downloadedBlobsByHash.Add(source.HashValue, blob);
-                    }
+                            if (blob.Size != source.Size)
+                                throw new NotImplementedException("Download stream length does not match expected file size.");
+
+                            return (source.HashValue, blob);
+                        },
+                        degreeOfParallelism: 10,
+                        CancellationToken.None).ConfigureAwait(false);
+
+                    foreach (var (hash, blob) in results)
+                        downloadedBlobsByHash.Add(hash, blob);
                 }
 
                 foreach (var operation in mappingState.TopologicalOperations)
