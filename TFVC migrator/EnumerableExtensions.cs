@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TfvcMigrator
 {
-    internal static partial class EnumerableExtensions
+    public static partial class EnumerableExtensions
     {
         public static async IAsyncEnumerable<TResult> SelectAwait<TSource, TResult>(this IEnumerable<TSource> source, Func<TSource, Task<TResult>> selector)
         {

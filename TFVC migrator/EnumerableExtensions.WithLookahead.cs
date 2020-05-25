@@ -62,16 +62,15 @@ namespace TfvcMigrator
                     return new ValueTask<bool>(result);
                 }
 
-                var task = nextTask.AsTask();
-                task.ContinueWith(OnReturnedTaskCompleted, TaskContinuationOptions.OnlyOnRanToCompletion);
-
                 useCachedCurrentValue = false;
-                return new ValueTask<bool>(task);
+                return new ValueTask<bool>(HandleCompletion(nextTask));
             }
 
-            private void OnReturnedTaskCompleted(Task<bool> succeededTask)
+            private async Task<bool> HandleCompletion(ValueTask<bool> nextTask)
             {
-                OnMoveNextCompleted(succeededTask.Result);
+                var result = await nextTask.ConfigureAwait(false);
+                OnMoveNextCompleted(result);
+                return result;
             }
 
             private void OnMoveNextCompleted(bool result)
