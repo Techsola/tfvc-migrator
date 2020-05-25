@@ -112,8 +112,13 @@ namespace TfvcMigrator
             {
                 if (!(change.MergeSources?.SingleOrDefault(s => !s.IsRename) is { } source)) continue;
 
-                var sourceBranch = branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem)
-                    ?? throw new NotImplementedException();
+                if (!(branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem) is { } sourceBranch))
+                {
+                    if (branchIdentifier.FindBranchIdentity(changeset - 1, change.Item.Path) is { })
+                        throw new NotImplementedException("Merge from outside a known branch");
+
+                    continue;
+                }
 
                 var (sourcePath, targetPath) = PathUtils.RemoveCommonTrailingSegments(source.ServerItem, change.Item.Path);
 
