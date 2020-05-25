@@ -234,7 +234,6 @@ namespace TfvcMigrator
                         }
                     }
 
-                    var requireCommit = false;
                     var parents = new List<Commit>();
 
                     // Workaround: use .NET Core extension method rather than buggy extension method exposed by Microsoft.VisualStudio.Services.Client package.
@@ -244,8 +243,6 @@ namespace TfvcMigrator
 
                     foreach (var (_, additionalParent) in branchesWithTopologicalOperations.Where(t => t.Branch == branch))
                     {
-                        requireCommit = true;
-
                         if (additionalParent is var (parentChangeset, parentBranch))
                         {
                             if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
@@ -263,6 +260,12 @@ namespace TfvcMigrator
                     if (!commits.Any()) commitsByChangeset.Add(changeset.ChangesetId, commits);
 
                     var tree = repo.ObjectDatabase.CreateTree(builder);
+
+                    var requireCommit = mappingState.TopologicalOperations.Any(operation =>
+                        branch == (
+                            (operation as MergeOperation)?.TargetBranch
+                            ?? (operation as BranchOperation)?.NewBranch
+                            ?? (operation as RenameOperation)?.NewIdentity));
 
                     if (requireCommit || tree.Sha != head?.Tip.Tree.Sha)
                     {
