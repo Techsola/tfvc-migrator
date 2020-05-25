@@ -372,7 +372,6 @@ namespace TfvcMigrator
             for (var i = 0; i < changesets.Count; i++)
             {
                 var changeset = changesets[i];
-
                 var topologicalOperations = ImmutableArray<TopologicalOperation>.Empty;
 
                 if (i > 0)
@@ -394,8 +393,9 @@ namespace TfvcMigrator
                             {
                                 var mapping = branchMappings[branch.SourceBranch];
 
-                                if (PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory))
-                                    mapping = mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path);
+                                mapping = PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory)
+                                    ? mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path)
+                                    : mapping.WithSubdirectoryMapping(branch.NewBranch.Path, branch.SourceBranchPath);
 
                                 branchMappings.Add(branch.NewBranch, mapping);
                                 break;

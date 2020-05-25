@@ -63,6 +63,11 @@ namespace TfvcMigrator
                 subdirectoryMapping: null);
         }
 
+        public RepositoryBranchMapping WithSubdirectoryMapping(string branchDirectory, string targetDirectory)
+        {
+            return new RepositoryBranchMapping(RootDirectory, subdirectoryMapping: (branchDirectory, targetDirectory));
+        }
+
         public string? GetGitRepositoryPath(string itemPath)
         {
             if (!PathUtils.IsAbsolute(itemPath))
