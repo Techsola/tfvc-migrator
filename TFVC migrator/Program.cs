@@ -148,7 +148,7 @@ namespace TfvcMigrator
             var timedProgress = TimedProgress.Start();
 
             var downloadedBlobsByHash = new Dictionary<string, Blob>();
-            var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch)>>();
+            var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>>();
 
             await using var mappingStateAndItemsEnumerator =
                 EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
@@ -233,7 +233,7 @@ namespace TfvcMigrator
                 var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
                 var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
                 var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
-                var commits = new List<(Commit Commit, BranchIdentity Branch)>();
+                var commits = new List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>();
 
                 foreach (var (branch, _) in mappingState.BranchMappingsInDependentOperationOrder)
                 {
@@ -283,7 +283,7 @@ namespace TfvcMigrator
                         var newBranchName = branch == mappingState.Master ? "master" : GetValidGitBranchName(branch.Path);
                         var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
 
-                        commits.Add((commit, branch));
+                        commits.Add((commit, branch, WasCreatedForChangeset: true));
 
                         // Make sure HEAD is not pointed at a branch
                         repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
@@ -295,7 +295,7 @@ namespace TfvcMigrator
                     {
                         // Even though there is not a new commit, make it possible to find the commit that should be the
                         // parent commit if the current changeset is a parent changeset.
-                        commits.Add((head.Tip, branch));
+                        commits.Add((head.Tip, branch, WasCreatedForChangeset: false));
                     }
                 }
 
@@ -306,16 +306,20 @@ namespace TfvcMigrator
             {
                 if (commitsByChangeset.TryGetValue(changeset, out var commits))
                 {
-                    if (commits.Count > 1)
-                        throw new NotImplementedException("TODO: Add branch suffix to tags since same commit was replayed in multiple branches");
+                    var commitsCreatedForChangeset = commits.Where(c => c.WasCreatedForChangeset).ToList();
 
-                    foreach (var label in labels)
+                    foreach (var (commit, branch, _) in commitsCreatedForChangeset)
                     {
-                        repo.Tags.Add(
-                            GetValidGitBranchName(label.Name),
-                            commits.Single().Commit,
-                            new Signature(authorsLookup[label.Owner.UniqueName], label.ModifiedDate),
-                            label.Description);
+                        foreach (var label in labels)
+                        {
+                            repo.Tags.Add(
+                                GetValidGitBranchName(commitsCreatedForChangeset.Count > 1
+                                    ? label.Name + '-' + PathUtils.GetLeaf(branch.Path)
+                                    : label.Name),
+                                commit,
+                                new Signature(authorsLookup[label.Owner.UniqueName], label.ModifiedDate),
+                                label.Description);
+                        }
                     }
                 }
             }
