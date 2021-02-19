@@ -3,7 +3,7 @@
 Migrates source history from TFVC (Team Foundation Version Control) to idiomatic Git history while preserving branch topology. The goal of the tool is to answer the question, “What would it have looked like if we had been using Git from the beginning instead of TFVC?”
 
 For example, say a project folder contains subdirectories A, B, and C, and you create a TFVC branch B-dev based on B. It's little more than a copied folder with metadata about where it came from. In TFVC, you see A, B, B-dev, and C all at once in the same file system.  
-When this tool converts the project folder, it creates a Git repo with branches `master` and `B-dev`. The `master` Git branch contains A, B, and C, matching the same three TFVC folders. The `B-dev` Git branch also contains an A, an B, and a C, but this time the B folder corresponds to the *B-dev* TFVC folder rather than the *B* TFVC folder.
+When this tool converts the project folder, it creates a Git repo with branches `main` and `B-dev`. The `main` Git branch contains A, B, and C, matching the same three TFVC folders. The `B-dev` Git branch also contains an A, an B, and a C, but this time the B folder corresponds to the *B-dev* TFVC folder rather than the *B* TFVC folder.
 
 Differences from [https://github.com/git-tfs/git-tfs](https://github.com/git-tfs/git-tfs):
 

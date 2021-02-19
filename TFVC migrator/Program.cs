@@ -280,7 +280,7 @@ namespace TfvcMigrator
 
                     if (requireCommit || tree.Sha != head?.Tip.Tree.Sha)
                     {
-                        var newBranchName = branch == mappingState.Master ? "master" : GetValidGitBranchName(branch.Path);
+                        var newBranchName = branch == mappingState.Trunk ? "main" : GetValidGitBranchName(branch.Path);
                         var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
 
                         commits.Add((commit, branch, WasCreatedForChangeset: true));
@@ -400,12 +400,12 @@ namespace TfvcMigrator
             IReadOnlyList<TfvcChangesetRef> changesets,
             BranchIdentity initialBranch)
         {
-            var master = initialBranch;
+            var trunk = initialBranch;
 
             var branchMappings = ImmutableDictionary.CreateBuilder<BranchIdentity, RepositoryBranchMapping>();
-            branchMappings.Add(master, new RepositoryBranchMapping(master.Path, subdirectoryMapping: null));
+            branchMappings.Add(trunk, new RepositoryBranchMapping(trunk.Path, subdirectoryMapping: null));
 
-            var topologyAnalyzer = new TopologyAnalyzer(master, rootPathChanges);
+            var topologyAnalyzer = new TopologyAnalyzer(trunk, rootPathChanges);
 
             await using var changesetChangesEnumerator = changesets
                 .Skip(1)
@@ -467,7 +467,7 @@ namespace TfvcMigrator
                                 if (!branchMappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
                                 branchMappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
 
-                                if (master == rename.OldIdentity) master = rename.NewIdentity;
+                                if (trunk == rename.OldIdentity) trunk = rename.NewIdentity;
                                 break;
                             }
                         }
@@ -487,7 +487,7 @@ namespace TfvcMigrator
                     changeset.ChangesetId,
                     topologicalOperations,
                     additionalParents.ToImmutable(),
-                    master,
+                    trunk,
                     branchMappingsInTopologicalOrder);
             }
         }

@@ -8,20 +8,20 @@ namespace TfvcMigrator
         public int Changeset { get; }
         public ImmutableArray<TopologicalOperation> TopologicalOperations { get; }
         public ImmutableArray<(BranchIdentity Branch, int ParentChangeset, BranchIdentity ParentBranch)> AdditionalParents { get; }
-        public BranchIdentity Master { get; }
+        public BranchIdentity Trunk { get; }
         public ImmutableArray<(BranchIdentity Branch, RepositoryBranchMapping Mapping)> BranchMappingsInDependentOperationOrder { get; }
 
         public MappingState(
             int changesetId,
             ImmutableArray<TopologicalOperation> topologicalOperations,
             ImmutableArray<(BranchIdentity Branch, int ParentChangeset, BranchIdentity ParentBranch)> additionalParents,
-            BranchIdentity master,
+            BranchIdentity trunk,
             ImmutableArray<(BranchIdentity Branch, RepositoryBranchMapping Mapping)> branchMappingsInDependentOperationOrder)
         {
             Changeset = changesetId;
             TopologicalOperations = topologicalOperations;
             AdditionalParents = additionalParents;
-            Master = master;
+            Trunk = trunk;
             BranchMappingsInDependentOperationOrder = branchMappingsInDependentOperationOrder;
         }
     }
