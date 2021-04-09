@@ -201,6 +201,18 @@ namespace TfvcMigrator
                             if (blob.Size != source.Size)
                                 throw new NotImplementedException("Download stream length does not match expected file size.");
 
+                            if (!blob.IsBinary)
+                            {
+                                using var blobStream = (UnmanagedMemoryStream)blob.GetContentStream();
+                                using var renormalizedStream = Utils.RenormalizeCrlfIfNeeded(blobStream);
+
+                                if (renormalizedStream is not null)
+                                {
+                                    lock (downloadedBlobsByHash)
+                                        blob = repo.ObjectDatabase.CreateBlob(renormalizedStream);
+                                }
+                            }
+
                             return (source.HashValue, blob);
                         },
                         degreeOfParallelism: 10,
