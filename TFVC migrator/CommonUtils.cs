@@ -46,10 +46,9 @@ namespace TfvcMigrator
             if (minCapacity < 0)
                 throw new ArgumentOutOfRangeException(nameof(minCapacity), minCapacity, "Minimum capacity must be greater than or equal to zero.");
 
-            var originalArray = array;
-            if (originalArray != null && originalArray.Length >= minCapacity) return;
+            if (array != null && array.Length >= minCapacity) return;
 
-            var newCapacity = originalArray is null || originalArray.Length == 0 ? 4 : originalArray.Length * 2;
+            var newCapacity = array is null || array.Length == 0 ? 4 : array.Length * 2;
 
             const int maxArrayLength = 0x7FEFFFFF;
             if ((uint)newCapacity > maxArrayLength) newCapacity = maxArrayLength;

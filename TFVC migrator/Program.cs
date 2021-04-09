@@ -28,7 +28,7 @@ namespace TfvcMigrator
                 new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." },
                 new Option<string>("--authors")
                 {
-                    Required = true,
+                    IsRequired = true,
                     Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com>",
                 },
                 new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
