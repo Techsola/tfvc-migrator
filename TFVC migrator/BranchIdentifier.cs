@@ -6,7 +6,7 @@ namespace TfvcMigrator
 {
     public sealed class BranchIdentifier
     {
-        private readonly List<(BranchIdentity Identity, int? DeleteChangeset)> branchesByDescendingSpecificity = new List<(BranchIdentity branch, int? deleteChangeset)>();
+        private readonly List<(BranchIdentity Identity, int? DeleteChangeset)> branchesByDescendingSpecificity = new();
         private int maxKnownChangesetId;
 
         public BranchIdentifier(BranchIdentity initialFolder)

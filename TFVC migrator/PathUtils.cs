@@ -72,7 +72,7 @@ namespace TfvcMigrator
             if (!IsOrContains(containingPath, path))
                 throw new ArgumentException("The specified containing path does not contain the specified path.");
 
-            return newContainingPath + path.Substring(containingPath.Length);
+            return newContainingPath + path[containingPath.Length..];
         }
 
         public static string RemoveContainingPath(string path, string containingPath)
@@ -100,7 +100,7 @@ namespace TfvcMigrator
                 var sourceSlashIndex = sourcePath.LastIndexOf('/');
                 if (sourceSlashIndex == -1) break;
 
-                if (!targetPath.EndsWith(sourcePath.Slice(sourceSlashIndex), StringComparison.OrdinalIgnoreCase))
+                if (!targetPath.EndsWith(sourcePath[sourceSlashIndex..], StringComparison.OrdinalIgnoreCase))
                 {
                     return (sourcePath.ToString(), targetPath.ToString());
                 }

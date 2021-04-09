@@ -15,7 +15,7 @@ namespace TfvcMigrator
             stopwatch = Stopwatch.StartNew();
         }
 
-        public static TimedProgress Start() => new TimedProgress();
+        public static TimedProgress Start() => new();
 
         public void Increment()
         {

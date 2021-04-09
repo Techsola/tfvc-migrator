@@ -2,3 +2,9 @@
 
 # CS8509: The switch expression does not handle all possible values of its input type (it is not exhaustive).
 dotnet_diagnostic.CS8509.severity = none
+
+# CA2012: Use ValueTasks correctly
+dotnet_diagnostic.CA2012.severity = none
+
+# CA1826: Do not use Enumerable methods on indexable collections
+dotnet_diagnostic.CA1826.severity = none

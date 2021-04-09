@@ -11,7 +11,7 @@ namespace TfvcMigrator
     internal sealed partial class AsyncParallelQueue<T>
     {
         private readonly AtomicOperations atomicOperations;
-        private readonly TaskCompletionSource<ImmutableArray<T>> taskCompletionSource = new TaskCompletionSource<ImmutableArray<T>>();
+        private readonly TaskCompletionSource<ImmutableArray<T>> taskCompletionSource = new();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="AsyncParallelQueue{T}"/> class and begins enumerating all tasks
@@ -55,7 +55,7 @@ namespace TfvcMigrator
 
             if (cancellationToken.IsCancellationRequested)
             {
-                taskCompletionSource.SetCanceled();
+                taskCompletionSource.SetCanceled(cancellationToken);
                 atomicOperations = null!;
             }
             else
