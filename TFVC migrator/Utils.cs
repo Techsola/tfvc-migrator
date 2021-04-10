@@ -22,7 +22,7 @@ namespace TfvcMigrator
 
         public static bool ContainsCrlf(
             Stream stream,
-            [NotNullWhen(true)] out ReadOnlySpan<byte> crlfBytes,
+            [NotNullWhen(true)] out ReadOnlyMemory<byte> crlfBytes,
             out int crLength)
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
@@ -49,31 +49,11 @@ namespace TfvcMigrator
             return false;
         }
 
-        public static MemoryStream? RenormalizeCrlfIfNeeded(this UnmanagedMemoryStream stream)
+        public static Stream? RenormalizeCrlfIfNeeded(this UnmanagedMemoryStream stream)
         {
-            if (!ContainsCrlf(stream, out var crlfBytes, out var crLength)) return null;
-
-            if (stream.Length > int.MaxValue)
-                throw new NotImplementedException("Renormalizing line endings in text files larger than 2 GB is not yet implemented.");
-
-            var renormalizedStream = new MemoryStream(unchecked((int)stream.Length));
-
-            var reader = new SequenceReader<byte>(stream.GetReadOnlySequence());
-
-            while (reader.TryReadTo(out ReadOnlySequence<byte> line, crlfBytes, advancePastDelimiter: false))
-            {
-                foreach (var memory in line)
-                    renormalizedStream.Write(memory.Span);
-
-                reader.Advance(crLength);
-            }
-
-            foreach (var memory in reader.UnreadSequence)
-                renormalizedStream.Write(memory.Span);
-
-            renormalizedStream.Position = 0;
-
-            return renormalizedStream;
+            return ContainsCrlf(stream, out var crlfBytes, out var crLength)
+                ? new CrlfRenormalizingStream(stream, crlfBytes, crLength)
+                : null;
         }
 
         public static ReadOnlySequence<byte> GetReadOnlySequence(this UnmanagedMemoryStream stream)
