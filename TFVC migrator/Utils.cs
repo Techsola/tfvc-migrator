@@ -6,7 +6,7 @@ using System.Threading;
 
 namespace TfvcMigrator
 {
-    internal static class Utils
+    public static class Utils
     {
         public static T InterlockedUpdate<T, TState>(ref T location, TState state, Func<T, TState, T> applyUpdate)
             where T : class?
@@ -20,6 +20,11 @@ namespace TfvcMigrator
             }
         }
 
+        public static bool ContainsCrlf(MemoryStream stream)
+        {
+            throw new NotImplementedException();
+        }
+
         public static bool ContainsCrlf(
             Stream stream,
             [NotNullWhen(true)] out ReadOnlyMemory<byte> crlfBytes,
@@ -30,11 +35,9 @@ namespace TfvcMigrator
             while (true)
             {
                 var c = reader.Read();
-                if (c == -1) break;
-                if (c == '\r')
+                while (c == '\r')
                 {
                     c = reader.Read();
-                    if (c == -1) break;
                     if (c == '\n')
                     {
                         crlfBytes = reader.CurrentEncoding.GetBytes("\r\n");
@@ -42,6 +45,7 @@ namespace TfvcMigrator
                         return true;
                     }
                 }
+                if (c == -1) break;
             }
 
             crlfBytes = default;
