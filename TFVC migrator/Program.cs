@@ -41,10 +41,11 @@ namespace TfvcMigrator
                     Argument = { Arity = ArgumentArity.OneOrMore },
                     Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset."
                 },
+                new Option<string?>("--pat") { Description = "Optional PAT, required to access TFVC repositories hosted on Azure DevOps Services. If not provided Default Client Credentials will be used, these are only suitable for on-premise TFS/Azure DevOps Server." },
             };
 
             command.Handler = CommandHandler.Create(
-                new Func<Uri, string, string, string?, int?, int?, ImmutableArray<RootPathChange>, Task>(MigrateAsync));
+                new Func<Uri, string, string, string?, int?, int?, ImmutableArray<RootPathChange>, string?, Task >(MigrateAsync));
 
             return command.InvokeAsync(args);
         }
@@ -72,7 +73,8 @@ namespace TfvcMigrator
             string? outDir = null,
             int? minChangeset = null,
             int? maxChangeset = null,
-            ImmutableArray<RootPathChange> rootPathChanges = default)
+            ImmutableArray<RootPathChange> rootPathChanges = default,
+            string? pat = null)
         {
             if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
 
@@ -93,7 +95,12 @@ namespace TfvcMigrator
 
             Console.WriteLine("Connecting...");
 
-            using var connection = new VssConnection(projectCollectionUrl, new VssCredentials());
+            var vssCredentials =  new VssCredentials();
+            if (!string.IsNullOrEmpty(pat)) {
+                vssCredentials = new VssBasicCredential(string.Empty, pat);
+            }
+
+            using var connection = new VssConnection(projectCollectionUrl, vssCredentials);
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
             Console.WriteLine("Downloading changeset and label metadata...");
