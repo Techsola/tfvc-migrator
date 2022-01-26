@@ -43,7 +43,7 @@ namespace TfvcMigrator
         public string? GetFriendlyEta(int total)
         {
             return
-                !(GetEta(total) is { } duration) ? null :
+                GetEta(total) is not { } duration ? null :
                 duration.Days != 0 ? Format(duration.TotalDays, 1, "day", "days") :
                 duration.Hours != 0 ? Format(duration.TotalHours, 1, "hour", "hours") :
                 duration.Minutes != 0 ? Format(duration.TotalMinutes, 0, "min", "min") :

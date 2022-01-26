@@ -110,11 +110,11 @@ namespace TfvcMigrator
 
             foreach (var change in changesetChanges)
             {
-                if (!(change.MergeSources?.SingleOrDefault(s => !s.IsRename) is { } source)) continue;
+                if (change.MergeSources?.SingleOrDefault(s => !s.IsRename) is not { } source) continue;
 
-                if (!(branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem) is { } sourceBranch))
+                if (branchIdentifier.FindBranchIdentity(source.VersionTo - 1, source.ServerItem) is not { } sourceBranch)
                 {
-                    if (branchIdentifier.FindBranchIdentity(changeset - 1, change.Item.Path) is { })
+                    if (branchIdentifier.FindBranchIdentity(changeset - 1, change.Item.Path) is not null)
                         throw new NotImplementedException("Merge from outside a known branch");
 
                     continue;

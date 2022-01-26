@@ -210,8 +210,8 @@ namespace TfvcMigrator
 
                             if (!blob.IsBinary)
                             {
-                                using var blobStream = (UnmanagedMemoryStream)blob.GetContentStream();
-                                using var renormalizedStream = Utils.RenormalizeCrlfIfNeeded(blobStream);
+                                await using var blobStream = (UnmanagedMemoryStream)blob.GetContentStream();
+                                await using var renormalizedStream = Utils.RenormalizeCrlfIfNeeded(blobStream);
 
                                 if (renormalizedStream is not null)
                                 {
@@ -272,7 +272,7 @@ namespace TfvcMigrator
                     // Workaround: use .NET Core extension method rather than buggy extension method exposed by Microsoft.VisualStudio.Services.Client package.
                     // https://developercommunity.visualstudio.com/content/problem/996912/client-nuget-package-microsoftvisualstudioservices.html
                     var head = CollectionExtensions.GetValueOrDefault(heads, branch);
-                    if (head is { }) parents.Add(head.Tip);
+                    if (head is not null) parents.Add(head.Tip);
 
                     foreach (var (_, parentChangeset, parentBranch) in mappingState.AdditionalParents.Where(t => t.Branch == branch))
                     {
@@ -307,10 +307,10 @@ namespace TfvcMigrator
                         // Make sure HEAD is not pointed at a branch
                         repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
 
-                        if (head is { }) repo.Branches.Remove(head);
+                        if (head is not null) repo.Branches.Remove(head);
                         heads[branch] = repo.Branches.Add(newBranchName, commit);
                     }
-                    else if (head is { })
+                    else if (head is not null)
                     {
                         // Even though there is not a new commit, make it possible to find the commit that should be the
                         // parent commit if the current changeset is a parent changeset.

@@ -55,7 +55,7 @@ namespace TfvcMigrator
             if (!PathUtils.IsOrContains(oldPath, RootDirectory))
                 throw new InvalidOperationException("The rename does not apply to this mapping.");
 
-            if (SubdirectoryMapping is { })
+            if (SubdirectoryMapping is not null)
                 throw new NotImplementedException("Research: Renaming and branching might behave differently when subdirectory mapping is involved.");
 
             return new RepositoryBranchMapping(

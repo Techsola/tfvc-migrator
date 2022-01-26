@@ -105,8 +105,8 @@ namespace TfvcMigrator
                     return (sourcePath.ToString(), targetPath.ToString());
                 }
 
-                sourcePath = sourcePath.Slice(0, sourceSlashIndex);
-                targetPath = targetPath.Slice(0, sourceSlashIndex + targetLengthOffset);
+                sourcePath = sourcePath[..sourceSlashIndex];
+                targetPath = targetPath[..(sourceSlashIndex + targetLengthOffset)];
             }
 
             if (!targetPath.Equals(sourcePath, StringComparison.OrdinalIgnoreCase))

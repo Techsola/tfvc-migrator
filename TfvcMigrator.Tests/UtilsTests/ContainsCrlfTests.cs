@@ -7,7 +7,7 @@ namespace TfvcMigrator.Tests.UtilsTests
     public static class ContainsCrlfTests
     {
         private const byte CR = (byte)'\r', LF = (byte)'\n';
-        
+
         [Test]
         public static void False_for_only_CR()
         {

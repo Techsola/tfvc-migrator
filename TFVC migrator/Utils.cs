@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Buffers;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 
@@ -20,15 +19,7 @@ namespace TfvcMigrator
             }
         }
 
-        public static bool ContainsCrlf(MemoryStream stream)
-        {
-            throw new NotImplementedException();
-        }
-
-        public static bool ContainsCrlf(
-            Stream stream,
-            [NotNullWhen(true)] out ReadOnlyMemory<byte> crlfBytes,
-            out int crLength)
+        public static bool ContainsCrlf(Stream stream, out ReadOnlyMemory<byte> crlfBytes, out int crLength)
         {
             using var reader = new StreamReader(stream, leaveOpen: true);
 
@@ -53,7 +44,7 @@ namespace TfvcMigrator
             return false;
         }
 
-        public static Stream? RenormalizeCrlfIfNeeded(this UnmanagedMemoryStream stream)
+        public static Stream? RenormalizeCrlfIfNeeded(UnmanagedMemoryStream stream)
         {
             return ContainsCrlf(stream, out var crlfBytes, out var crLength)
                 ? new CrlfRenormalizingStream(stream, crlfBytes, crLength)
@@ -85,7 +76,10 @@ namespace TfvcMigrator
         {
             private readonly unsafe byte* pointer;
             private readonly int length;
+
+#pragma warning disable IDE0052 // Remove unread private members
             private readonly object? keepAlive;
+#pragma warning restore IDE0052
 
             public unsafe UnmanagedMemoryManager(byte* pointer, int length, object? keepAlive)
             {

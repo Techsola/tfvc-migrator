@@ -45,7 +45,7 @@ namespace TfvcMigrator
             }
 
             [AllowNull]
-            public T Current { get; private set; } = default;
+            public T Current { get; private set; }
 
             public ValueTask<bool> MoveNextAsync()
             {
