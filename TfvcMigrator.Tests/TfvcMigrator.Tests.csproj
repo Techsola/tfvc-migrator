@@ -16,7 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TFVC migrator\TFVC migrator.csproj" />
+    <ProjectReference Include="..\TfvcMigrator\TfvcMigrator.csproj" />
   </ItemGroup>
 
 </Project>
