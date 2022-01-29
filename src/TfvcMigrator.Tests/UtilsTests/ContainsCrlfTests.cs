@@ -1,6 +1,6 @@
-﻿using NUnit.Framework;
+﻿using System.IO;
+using NUnit.Framework;
 using Shouldly;
-using System.IO;
 
 namespace TfvcMigrator.Tests.UtilsTests
 {

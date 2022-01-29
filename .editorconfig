@@ -1,5 +1,7 @@
 ﻿[*.cs]
 
+dotnet_sort_system_directives_first = true
+
 # CS8509: The switch expression does not handle all possible values of its input type (it is not exhaustive).
 dotnet_diagnostic.CS8509.severity = none
 
