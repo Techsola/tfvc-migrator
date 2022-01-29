@@ -7,9 +7,6 @@ namespace TfvcMigrator
 {
     internal static class CommonUtils
     {
-        /// <exception cref="ArgumentNullException">
-        /// Thrown when <paramref name="enumerable"/> is <see langword="null"/>.
-        /// </exception>
         public static bool TryGetCollectionCount<T>(IEnumerable<T> enumerable, out int count)
         {
             switch (enumerable)
@@ -35,12 +32,6 @@ namespace TfvcMigrator
             }
         }
 
-        /// <exception cref="ArgumentOutOfRangeException">
-        /// Thrown when <paramref name="minCapacity"/> is less than zero.
-        /// </exception>
-        /// <exception cref="OutOfMemoryException">
-        /// Thrown when <paramref name="minCapacity"/> is greater than the maximum available array length.
-        /// </exception>
         public static void EnsureCapacity<T>([NotNull] ref T[]? array, int minCapacity)
         {
             if (minCapacity < 0)

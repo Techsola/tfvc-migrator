@@ -74,7 +74,8 @@ namespace TfvcMigrator
 
                         if (dependentItemInfo.OutstandingDependencies.Count == 1)
                         {
-                            Debug.Assert(comparer.Equals(recursionStack.Peek().CompletedItemKey, dependentItemInfo.OutstandingDependencies[0]));
+                            if (!comparer.Equals(recursionStack.Peek().CompletedItemKey, dependentItemInfo.OutstandingDependencies[0]))
+                                throw new ArgumentException("A consistency error was detected in the comparer.", nameof(comparer));
 
                             completedItem = dependentItemInfo.Item;
                             completedItemKey = dependentItemInfo.Key;
