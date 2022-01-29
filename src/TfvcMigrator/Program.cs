@@ -13,7 +13,6 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using TaskTupleAwaiter;
 using TfvcMigrator.Operations;
 
 namespace TfvcMigrator
@@ -38,13 +37,13 @@ namespace TfvcMigrator
                     "--root-path-changes",
                     parseArgument: result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray())
                 {
-                    Argument = { Arity = ArgumentArity.OneOrMore },
+                    Arity = ArgumentArity.OneOrMore,
                     Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset."
                 },
                 new Option<string?>("--pat") { Description = "Optional PAT, required to access TFVC repositories hosted on Azure DevOps Services. If not provided Default Client Credentials will be used, these are only suitable for on-premise TFS/Azure DevOps Server." },
             };
 
-            command.Handler = CommandHandler.Create(
+            command.SetHandler(
                 new Func<Uri, string, string, string?, int?, int?, ImmutableArray<RootPathChange>, string?, Task >(MigrateAsync));
 
             return command.InvokeAsync(args);

@@ -5,6 +5,19 @@
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+	<Product>TFVC Migrator</Product>
+	<Authors>Technology Solutions Associates</Authors>
+	<Copyright>Copyright © 2020–2022 Technology Solutions Associates</Copyright>
+	<AssemblyTitle>TFVC Migrator</AssemblyTitle>
+
+	<PublishSingleFile>true</PublishSingleFile>
+	<SelfContained>false</SelfContained>
+    <RollForward>Major</RollForward>
+	<RuntimeIdentifier>win10-x64</RuntimeIdentifier>
+	<IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+	<EmbedAllSources>true</EmbedAllSources>
+	<DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,10 +25,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibGit2Sharp" Version="0.27.0-preview-0096" />
+    <PackageReference Include="LibGit2Sharp" Version="0.27.0-preview-0175" />
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.170.0" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta1.20574.7" />
-    <PackageReference Include="TaskTupleAwaiter" Version="1.2.3" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta2.21617.1" />
+    <PackageReference Include="TaskTupleAwaiter" Version="2.0.0" />
   </ItemGroup>
 
 </Project>
