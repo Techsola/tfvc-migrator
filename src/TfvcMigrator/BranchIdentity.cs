@@ -1,7 +1,4 @@
-﻿using System;
-using System.Diagnostics;
-
-namespace TfvcMigrator
+﻿namespace TfvcMigrator
 {
     [DebuggerDisplay("{ToString(),nq}")]
     public readonly struct BranchIdentity : IEquatable<BranchIdentity>

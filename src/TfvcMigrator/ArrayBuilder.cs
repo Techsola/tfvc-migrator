@@ -1,7 +1,4 @@
-﻿using System;
-using System.Diagnostics.CodeAnalysis;
-
-namespace TfvcMigrator
+﻿namespace TfvcMigrator
 {
     /// <summary>
     /// Enables building an array by setting indexes in any order without having to use an <c>Add</c> method.

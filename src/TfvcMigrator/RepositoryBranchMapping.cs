@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace TfvcMigrator
+﻿namespace TfvcMigrator
 {
     public readonly struct RepositoryBranchMapping
     {

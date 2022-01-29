@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
-using System.Linq;
-
-namespace TfvcMigrator
+﻿namespace TfvcMigrator
 {
     internal static partial class TopologicalSortExtensions
     {

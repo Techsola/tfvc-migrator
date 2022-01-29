@@ -1,7 +1,4 @@
-﻿using System;
-using System.Diagnostics;
-
-namespace TfvcMigrator.Operations
+﻿namespace TfvcMigrator.Operations
 {
     [DebuggerDisplay("{ToString(),nq}")]
     public sealed class DeleteOperation : TopologicalOperation, IEquatable<DeleteOperation?>

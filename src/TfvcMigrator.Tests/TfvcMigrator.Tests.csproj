@@ -23,4 +23,9 @@
     <ProjectReference Include="..\TfvcMigrator\TfvcMigrator.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="NUnit.Framework" />
+    <Using Include="Shouldly" />
+  </ItemGroup>
+
 </Project>

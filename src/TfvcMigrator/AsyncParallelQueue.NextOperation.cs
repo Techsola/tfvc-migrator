@@ -1,8 +1,4 @@
-﻿using System;
-using System.Diagnostics.CodeAnalysis;
-using System.Threading.Tasks;
-
-namespace TfvcMigrator
+﻿namespace TfvcMigrator
 {
     internal sealed partial class AsyncParallelQueue<T>
     {

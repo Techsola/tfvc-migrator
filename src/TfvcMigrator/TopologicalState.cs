@@ -1,5 +1,4 @@
-﻿using System.Collections.Immutable;
-using TfvcMigrator.Operations;
+﻿using TfvcMigrator.Operations;
 
 namespace TfvcMigrator
 {

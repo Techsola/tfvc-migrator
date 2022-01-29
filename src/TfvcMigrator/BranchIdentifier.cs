@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-
-namespace TfvcMigrator
+﻿namespace TfvcMigrator
 {
     public sealed class BranchIdentifier
     {

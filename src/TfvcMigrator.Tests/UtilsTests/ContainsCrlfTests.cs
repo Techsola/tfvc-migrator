@@ -1,8 +1,4 @@
-﻿using System.IO;
-using NUnit.Framework;
-using Shouldly;
-
-namespace TfvcMigrator.Tests.UtilsTests
+﻿namespace TfvcMigrator.Tests.UtilsTests
 {
     public static class ContainsCrlfTests
     {

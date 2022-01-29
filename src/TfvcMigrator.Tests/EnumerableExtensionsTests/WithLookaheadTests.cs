@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using NSubstitute;
-using NUnit.Framework;
-using Shouldly;
+﻿using NSubstitute;
 
 namespace TfvcMigrator.Tests.EnumerableExtensionsTests
 {
