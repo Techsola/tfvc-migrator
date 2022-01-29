@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request: ~
+
+env:
+  DOTNET_NOLOGO: true
+
+jobs:
+  build:
+
+    runs-on: windows-2022 # Currently, windows-latest is windows-2019 which doesn't have .NET 6
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Pack and test
+      run: ./build.ps1
+
+    - name: Upload bin artifact
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: Bin
+        path: artifacts/Bin
+
+    - name: Upload logs artifact
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: Logs
+        path: artifacts/Logs
