@@ -1,61 +1,60 @@
-﻿namespace TfvcMigrator.Operations
+﻿namespace TfvcMigrator.Operations;
+
+[DebuggerDisplay("{ToString(),nq}")]
+public sealed class MergeOperation : TopologicalOperation, IEquatable<MergeOperation?>
 {
-    [DebuggerDisplay("{ToString(),nq}")]
-    public sealed class MergeOperation : TopologicalOperation, IEquatable<MergeOperation?>
+    public MergeOperation(int changeset, BranchIdentity sourceBranch, int sourceBranchChangeset, string sourceBranchPath, BranchIdentity targetBranch, string targetBranchPath)
     {
-        public MergeOperation(int changeset, BranchIdentity sourceBranch, int sourceBranchChangeset, string sourceBranchPath, BranchIdentity targetBranch, string targetBranchPath)
-        {
-            if (!PathUtils.IsOrContains(sourceBranch.Path, sourceBranchPath))
-                throw new ArgumentException("The source branch path must be the same as or nested within the source branch identity path.");
+        if (!PathUtils.IsOrContains(sourceBranch.Path, sourceBranchPath))
+            throw new ArgumentException("The source branch path must be the same as or nested within the source branch identity path.");
 
-            if (!PathUtils.IsOrContains(targetBranch.Path, targetBranchPath))
-                throw new ArgumentException("The target branch path must be the same as or nested within the target branch identity path.");
+        if (!PathUtils.IsOrContains(targetBranch.Path, targetBranchPath))
+            throw new ArgumentException("The target branch path must be the same as or nested within the target branch identity path.");
 
-            if (sourceBranchChangeset > changeset)
-                throw new ArgumentException("The source branch changeset cannot be newer than the merge changeset.");
+        if (sourceBranchChangeset > changeset)
+            throw new ArgumentException("The source branch changeset cannot be newer than the merge changeset.");
 
-            Changeset = changeset;
-            SourceBranch = sourceBranch;
-            SourceBranchChangeset = sourceBranchChangeset;
-            SourceBranchPath = sourceBranchPath;
-            TargetBranch = targetBranch;
-            TargetBranchPath = targetBranchPath;
-        }
+        Changeset = changeset;
+        SourceBranch = sourceBranch;
+        SourceBranchChangeset = sourceBranchChangeset;
+        SourceBranchPath = sourceBranchPath;
+        TargetBranch = targetBranch;
+        TargetBranchPath = targetBranchPath;
+    }
 
-        public override int Changeset { get; }
-        public BranchIdentity SourceBranch { get; }
-        public int SourceBranchChangeset { get; }
-        public string SourceBranchPath { get; }
-        public BranchIdentity TargetBranch { get; }
-        public string TargetBranchPath { get; }
+    public override int Changeset { get; }
+    public BranchIdentity SourceBranch { get; }
+    public int SourceBranchChangeset { get; }
+    public string SourceBranchPath { get; }
+    public BranchIdentity TargetBranch { get; }
+    public string TargetBranchPath { get; }
 
-        public override string ToString() => $"CS{Changeset}: Merge {SourceBranchPath} at {SourceBranchChangeset} to {TargetBranchPath}";
+    public override string ToString() => $"CS{Changeset}: Merge {SourceBranchPath} at {SourceBranchChangeset} to {TargetBranchPath}";
 
-        public override bool Equals(object? obj)
-        {
-            return Equals(obj as MergeOperation);
-        }
+    public override bool Equals(object? obj)
+    {
+        return Equals(obj as MergeOperation);
+    }
 
-        public bool Equals(MergeOperation? other)
-        {
-            return other != null &&
-                   Changeset == other.Changeset &&
-                   SourceBranch.Equals(other.SourceBranch) &&
-                   SourceBranchChangeset == other.SourceBranchChangeset &&
-                   SourceBranchPath.Equals(other.SourceBranchPath, StringComparison.OrdinalIgnoreCase) &&
-                   TargetBranch.Equals(other.TargetBranch) &&
-                   TargetBranchPath.Equals(other.TargetBranchPath, StringComparison.OrdinalIgnoreCase);
-        }
+    public bool Equals(MergeOperation? other)
+    {
+        return other != null &&
+               Changeset == other.Changeset &&
+               SourceBranch.Equals(other.SourceBranch) &&
+               SourceBranchChangeset == other.SourceBranchChangeset &&
+               SourceBranchPath.Equals(other.SourceBranchPath, StringComparison.OrdinalIgnoreCase) &&
+               TargetBranch.Equals(other.TargetBranch) &&
+               TargetBranchPath.Equals(other.TargetBranchPath, StringComparison.OrdinalIgnoreCase);
+    }
 
-        public override int GetHashCode()
-        {
-            return HashCode.Combine(
-                Changeset,
-                SourceBranch,
-                SourceBranchChangeset,
-                SourceBranchPath.GetHashCode(StringComparison.OrdinalIgnoreCase),
-                TargetBranch,
-                TargetBranchPath.GetHashCode(StringComparison.OrdinalIgnoreCase));
-        }
+    public override int GetHashCode()
+    {
+        return HashCode.Combine(
+            Changeset,
+            SourceBranch,
+            SourceBranchChangeset,
+            SourceBranchPath.GetHashCode(StringComparison.OrdinalIgnoreCase),
+            TargetBranch,
+            TargetBranchPath.GetHashCode(StringComparison.OrdinalIgnoreCase));
     }
 }

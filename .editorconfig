@@ -1,5 +1,7 @@
 ﻿[*.cs]
 
+csharp_style_namespace_declarations = file_scoped:warning
+
 dotnet_sort_system_directives_first = true
 
 # IDE0005: Using directive is unnecessary.
