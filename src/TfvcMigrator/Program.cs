@@ -1,4 +1,5 @@
 ﻿using System.CommandLine;
+using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
 using System.Text;
 using LibGit2Sharp;
@@ -35,7 +36,7 @@ public static class Program
             new Option<string?>("--pat") { Description = "Optional PAT, required to access TFVC repositories hosted on Azure DevOps Services. If not provided Default Client Credentials will be used, these are only suitable for on-premise TFS/Azure DevOps Server." },
         };
 
-        command.SetHandler(
+        command.Handler = CommandHandler.Create(
             new Func<Uri, string, string, string?, int?, int?, ImmutableArray<RootPathChange>, string?, Task>(MigrateAsync));
 
         return command.InvokeAsync(args);
