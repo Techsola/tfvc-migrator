@@ -1,4 +1,5 @@
 ﻿using System.CommandLine;
+using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
 using System.Text;
 using LibGit2Sharp;
@@ -30,13 +31,13 @@ public static class Program
                 parseArgument: result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray())
             {
                 Arity = ArgumentArity.OneOrMore,
+                AllowMultipleArgumentsPerToken = true,
                 Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset.",
             },
             new Option<string?>("--pat") { Description = "Optional PAT, required to access TFVC repositories hosted on Azure DevOps Services. If not provided Default Client Credentials will be used, these are only suitable for on-premise TFS/Azure DevOps Server." },
         };
 
-        command.SetHandler(
-            new Func<Uri, string, string, string?, int?, int?, ImmutableArray<RootPathChange>, string?, Task>(MigrateAsync));
+        command.Handler = CommandHandler.Create(CommandVerifier.Intercept(MigrateAsync));
 
         return command.InvokeAsync(args);
     }
