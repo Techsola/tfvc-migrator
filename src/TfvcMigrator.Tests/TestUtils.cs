@@ -2,7 +2,7 @@
 
 internal static class TestUtils
 {
-    public static string CaptureConsoleOutput(Action action)
+    public static async Task<string> CaptureConsoleOutputAsync(Func<Task> asyncAction)
     {
         var writer = new StringWriter();
 
@@ -10,7 +10,7 @@ internal static class TestUtils
         Console.SetOut(writer);
         try
         {
-            action.Invoke();
+            await asyncAction.Invoke();
         }
         finally
         {

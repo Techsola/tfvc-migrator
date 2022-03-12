@@ -6,9 +6,9 @@ namespace TfvcMigrator.Tests;
 public static class ReadmeTests
 {
     [Test]
-    public static void Command_line_arguments_section_is_up_to_date()
+    public static async Task Command_line_arguments_section_is_up_to_date()
     {
-        var helpOutput = TestUtils.CaptureConsoleOutput(() => Program.Main(new[] { "--help" }))
+        var helpOutput = (await TestUtils.CaptureConsoleOutputAsync(async () => await Program.Main(new[] { "--help" })))
             .Replace(Assembly.GetEntryAssembly()!.GetName().Name!, typeof(Program).Assembly.GetName().Name);
 
         var expectedReadmeCodeBlock = Regex.Replace(helpOutput, @"\ADescription:\s*\n[^\n]*\n\s*\n", "");
