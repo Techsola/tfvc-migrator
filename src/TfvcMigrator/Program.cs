@@ -36,7 +36,7 @@ public static class Program
             new Option<string?>("--pat") { Description = "Optional PAT, required to access TFVC repositories hosted on Azure DevOps Services. If not provided Default Client Credentials will be used, these are only suitable for on-premise TFS/Azure DevOps Server." },
         };
 
-        command.Handler = CommandHandler.Create(MigrateAsync);
+        command.Handler = CommandHandler.Create(CommandVerifier.Intercept(MigrateAsync));
 
         return command.InvokeAsync(args);
     }
