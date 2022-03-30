@@ -19,7 +19,7 @@ This tool is offered **as-is** for a notoriously complex problem. We hope (witho
 ## How to use
 
 1. Clone this repository (example: `git clone https://github.com/Techsola/tfvc-migrator`)
-2. Navigate to the `TFVC Migrator` subdirectory (example: `cd "tfvc-migrator\TFVC Migrator"`)
+2. Navigate to the `src\TfvcMigrator` subdirectory (example: `cd tfvc-migrator\src\TfvcMigrator`)
 3. Type `dotnet run` followed by the arguments below.
 4. For large repositories, expect to wait for a while. You'll get a progress view like this:
    ```
