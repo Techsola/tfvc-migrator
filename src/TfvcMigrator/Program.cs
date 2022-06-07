@@ -87,9 +87,9 @@ public static class Program
 
         Console.WriteLine("Connecting...");
 
-        var vssCredentials = new VssCredentials();
-        if (!string.IsNullOrEmpty(pat))
-            vssCredentials = new VssBasicCredential(string.Empty, pat);
+        var vssCredentials = !string.IsNullOrEmpty(pat)
+            ? new VssBasicCredential(string.Empty, pat)
+            : new VssCredentials();
 
         using var connection = new VssConnection(projectCollectionUrl, vssCredentials);
         using var client = await connection.GetClientAsync<TfvcHttpClient>();
