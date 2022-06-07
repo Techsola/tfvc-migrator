@@ -1,34 +1,7 @@
-﻿using System.Collections;
-
-namespace TfvcMigrator;
+﻿namespace TfvcMigrator;
 
 internal static class CommonUtils
 {
-    public static bool TryGetCollectionCount<T>(IEnumerable<T> enumerable, out int count)
-    {
-        switch (enumerable)
-        {
-            case null:
-                throw new ArgumentNullException(nameof(enumerable));
-
-            case IReadOnlyCollection<T> collection:
-                count = collection.Count;
-                return true;
-
-            case ICollection<T> collection:
-                count = collection.Count;
-                return true;
-
-            case ICollection collection:
-                count = collection.Count;
-                return true;
-
-            default:
-                count = default;
-                return false;
-        }
-    }
-
     public static void EnsureCapacity<T>([NotNull] ref T[]? array, int minCapacity)
     {
         if (minCapacity < 0)

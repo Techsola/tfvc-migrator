@@ -53,7 +53,7 @@ internal sealed partial class AsyncParallelQueue<T>
             this.source = source.GetEnumerator();
 
             completedTasks = new ArrayBuilder<Task<T>>(
-                initialCapacity: CommonUtils.TryGetCollectionCount(source, out var count) ? count : 0);
+                initialCapacity: source.TryGetNonEnumeratedCount(out var count) ? count : 0);
         }
 
         public NextOperation TryStartNext()
