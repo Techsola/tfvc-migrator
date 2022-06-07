@@ -87,11 +87,12 @@ public static class Program
 
         Console.WriteLine("Connecting...");
 
-        var vssCredentials = pat is not null
-            ? new VssBasicCredential(userName: null, password: pat)
-            : new VssCredentials();
+        using var connection = new VssConnection(
+            projectCollectionUrl,
+            pat is not null
+                ? new VssBasicCredential(userName: null, password: pat)
+                : new VssCredentials());
 
-        using var connection = new VssConnection(projectCollectionUrl, vssCredentials);
         using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
         Console.WriteLine("Downloading changeset and label metadata...");
