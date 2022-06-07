@@ -87,7 +87,7 @@ public static class Program
 
         Console.WriteLine("Connecting...");
 
-        var vssCredentials = !string.IsNullOrEmpty(pat)
+        var vssCredentials = pat is not null
             ? new VssBasicCredential(null, pat)
             : new VssCredentials();
 
