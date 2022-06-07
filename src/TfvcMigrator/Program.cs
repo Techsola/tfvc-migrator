@@ -88,7 +88,7 @@ public static class Program
         Console.WriteLine("Connecting...");
 
         var vssCredentials = !string.IsNullOrEmpty(pat)
-            ? new VssBasicCredential(string.Empty, pat)
+            ? new VssBasicCredential(null, pat)
             : new VssCredentials();
 
         using var connection = new VssConnection(projectCollectionUrl, vssCredentials);
