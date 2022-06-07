@@ -1,4 +1,6 @@
-﻿[*.cs]
+﻿root = true
+
+[*.cs]
 
 csharp_style_namespace_declarations = file_scoped:warning
 
@@ -24,7 +26,6 @@ dotnet_diagnostic.SA1005.severity = none
 dotnet_diagnostic.SA1008.severity = none
 dotnet_diagnostic.SA1009.severity = none
 dotnet_diagnostic.SA1023.severity = none
-dotnet_diagnostic.SA1025.severity = none
 dotnet_diagnostic.SA1100.severity = none
 dotnet_diagnostic.SA1101.severity = none
 dotnet_diagnostic.SA1102.severity = none
@@ -60,7 +61,6 @@ dotnet_diagnostic.SA1306.severity = none
 dotnet_diagnostic.SA1310.severity = none
 dotnet_diagnostic.SA1401.severity = none
 dotnet_diagnostic.SA1402.severity = none
-dotnet_diagnostic.SA1500.severity = none
 dotnet_diagnostic.SA1501.severity = none
 dotnet_diagnostic.SA1502.severity = none
 dotnet_diagnostic.SA1503.severity = none

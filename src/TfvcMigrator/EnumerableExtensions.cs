@@ -30,9 +30,32 @@ public static partial class EnumerableExtensions
         return builder.ToImmutable();
     }
 
-    public static Task<ImmutableArray<TResult>> SelectAwaitParallel<T, TResult>(this IEnumerable<T> source, Func<T, Task<TResult>> selector, int degreeOfParallelism, CancellationToken cancellationToken)
+    public static async Task<ImmutableArray<TResult>> SelectAwaitParallel<T, TResult>(this IEnumerable<T> source, Func<T, Task<TResult>> selector, int degreeOfParallelism, CancellationToken cancellationToken)
     {
-        return new AsyncParallelQueue<TResult>(source.Select(selector), degreeOfParallelism, cancellationToken).WaitAllAsync();
+        var builder = ImmutableArray.CreateBuilder<TResult>(
+            source.TryGetNonEnumeratedCount(out var count) ? count : 0);
+
+        await Parallel.ForEachAsync(
+            source.Select((value, index) => (value, index)),
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = degreeOfParallelism,
+                CancellationToken = cancellationToken,
+            },
+            async (valueAndIndex, _) =>
+            {
+                var result = await selector(valueAndIndex.value).ConfigureAwait(false);
+
+                lock (builder)
+                {
+                    if (builder.Count <= valueAndIndex.index)
+                        builder.Count = valueAndIndex.index + 1;
+
+                    builder[valueAndIndex.index] = result;
+                }
+            });
+
+        return builder.ToImmutable();
     }
 
     public static IEnumerable<T?> AsNullable<T>(this IEnumerable<T> source)
