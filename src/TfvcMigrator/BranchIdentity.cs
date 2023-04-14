@@ -1,7 +1,7 @@
 ﻿namespace TfvcMigrator;
 
 [DebuggerDisplay("{ToString(),nq}")]
-public readonly struct BranchIdentity : IEquatable<BranchIdentity>
+public readonly record struct BranchIdentity
 {
     public BranchIdentity(int creationChangeset, string path)
     {
@@ -32,11 +32,6 @@ public readonly struct BranchIdentity : IEquatable<BranchIdentity>
         return $"CS{CreationChangeset}:{Path}";
     }
 
-    public override bool Equals(object? obj)
-    {
-        return obj is BranchIdentity identity && Equals(identity);
-    }
-
     public bool Equals(BranchIdentity other)
     {
         return CreationChangeset == other.CreationChangeset
@@ -46,15 +41,5 @@ public readonly struct BranchIdentity : IEquatable<BranchIdentity>
     public override int GetHashCode()
     {
         return HashCode.Combine(CreationChangeset, Path.GetHashCode(StringComparison.OrdinalIgnoreCase));
-    }
-
-    public static bool operator ==(BranchIdentity left, BranchIdentity right)
-    {
-        return left.Equals(right);
-    }
-
-    public static bool operator !=(BranchIdentity left, BranchIdentity right)
-    {
-        return !(left == right);
     }
 }

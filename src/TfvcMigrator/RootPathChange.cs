@@ -1,7 +1,7 @@
 ﻿namespace TfvcMigrator;
 
 [DebuggerDisplay("{ToString(),nq}")]
-public sealed class RootPathChange : IEquatable<RootPathChange?>
+public sealed record RootPathChange
 {
     public RootPathChange(int changeset, string newSourceRootPath)
     {
@@ -17,23 +17,6 @@ public sealed class RootPathChange : IEquatable<RootPathChange?>
 
     public int Changeset { get; }
     public string NewSourceRootPath { get; }
-
-    public override bool Equals(object? obj)
-    {
-        return Equals(obj as RootPathChange);
-    }
-
-    public bool Equals(RootPathChange? other)
-    {
-        return other != null &&
-               Changeset == other.Changeset &&
-               NewSourceRootPath == other.NewSourceRootPath;
-    }
-
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(Changeset, NewSourceRootPath);
-    }
 
     public override string ToString() => $"CS{Changeset}:{NewSourceRootPath}";
 }

@@ -1,7 +1,7 @@
 ﻿namespace TfvcMigrator.Operations;
 
 [DebuggerDisplay("{ToString(),nq}")]
-public sealed class MergeOperation : TopologicalOperation, IEquatable<MergeOperation?>
+public sealed record MergeOperation : TopologicalOperation
 {
     public MergeOperation(int changeset, BranchIdentity sourceBranch, int sourceBranchChangeset, string sourceBranchPath, BranchIdentity targetBranch, string targetBranchPath)
     {
@@ -30,11 +30,6 @@ public sealed class MergeOperation : TopologicalOperation, IEquatable<MergeOpera
     public string TargetBranchPath { get; }
 
     public override string ToString() => $"CS{Changeset}: Merge {SourceBranchPath} at {SourceBranchChangeset} to {TargetBranchPath}";
-
-    public override bool Equals(object? obj)
-    {
-        return Equals(obj as MergeOperation);
-    }
 
     public bool Equals(MergeOperation? other)
     {
