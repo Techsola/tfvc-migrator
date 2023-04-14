@@ -8,7 +8,7 @@
 
     <Product>TFVC Migrator</Product>
     <Authors>Technology Solutions Associates</Authors>
-    <Copyright>Copyright © 2020–2022 Technology Solutions Associates</Copyright>
+    <Copyright>Copyright © 2020–2023 Technology Solutions Associates</Copyright>
     <AssemblyTitle>TFVC Migrator</AssemblyTitle>
 
     <PublishSingleFile>true</PublishSingleFile>
