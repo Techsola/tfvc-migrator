@@ -74,16 +74,11 @@ public static class Program
             new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
                 .First(name => !string.IsNullOrEmpty(name))!);
 
-        Directory.CreateDirectory(outputDirectory);
-        if (Directory.GetFileSystemEntries(outputDirectory).Any())
-        {
-            Console.WriteLine($"Cannot create Git repository at {outputDirectory} because the directory is not empty.");
+        using var repo = InitRepository(outputDirectory);
+        if (repo is null)
             return 1;
-        }
 
         var authorsLookup = LoadAuthors(authors);
-
-        using var repo = new Repository(Repository.Init(outputDirectory));
 
         Console.WriteLine("Connecting...");
 
@@ -337,6 +332,32 @@ public static class Program
 
         Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
         return 0;
+    }
+
+    private static Repository? InitRepository(string outputDirectory)
+    {
+        Directory.CreateDirectory(outputDirectory);
+
+        var existingFileSystemEntries = Directory.GetFileSystemEntries(outputDirectory);
+        if (!existingFileSystemEntries.Any())
+            return new Repository(Repository.Init(outputDirectory));
+
+        if (existingFileSystemEntries is not [var singleFileSystemEntry]
+            || !".git".Equals(Path.GetFileName(singleFileSystemEntry), StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"Cannot create Git repository at {outputDirectory} because the directory is not empty.");
+            return null;
+        }
+
+        var repository = new Repository(singleFileSystemEntry);
+        if (repository.ObjectDatabase.Any())
+        {
+            repository.Dispose();
+            Console.WriteLine($"A Git repository at {outputDirectory} already exists and is not empty.");
+            return null;
+        }
+
+        return repository;
     }
 
     private static ImmutableDictionary<BranchIdentity, ImmutableArray<(string GitRepositoryPath, TfvcItem DownloadSource)>> MapItemsToDownloadSources(
