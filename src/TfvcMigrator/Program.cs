@@ -151,7 +151,8 @@ public static class Program
                     // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
                     Items: await DownloadItemsAsync(
                         client,
-                        state.BranchMappingsInDependentOperationOrder.Select(branchMapping => branchMapping.Mapping.RootDirectory),
+                        from branchMapping in state.BranchMappingsInDependentOperationOrder
+                        select branchMapping.Mapping.RootDirectory,
                         state.Changeset)))
                 .WithLookahead()
                 .GetAsyncEnumerator();
