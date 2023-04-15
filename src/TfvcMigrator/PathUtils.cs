@@ -20,12 +20,12 @@ internal static class PathUtils
             && otherPath[parentPath.Length] == '/' && otherPath.StartsWith(parentPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    public static bool IsOrContains(string parentPath, string otherPath)
+    public static bool IsOrContains(ReadOnlySpan<char> parentPath, ReadOnlySpan<char> otherPath)
     {
-        if (parentPath.EndsWith('/'))
+        if (parentPath.EndsWith("/"))
             throw new ArgumentException("Path should not end with a trailing slash.", nameof(parentPath));
 
-        if (otherPath.EndsWith('/'))
+        if (otherPath.EndsWith("/"))
             throw new ArgumentException("Path should not end with a trailing slash.", nameof(otherPath));
 
         return otherPath.Length > parentPath.Length + 1

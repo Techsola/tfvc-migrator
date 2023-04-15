@@ -30,6 +30,7 @@ public static class EntryPointTests
                 "--out-dir", "somedir",
                 "--min-changeset", "42",
                 "--max-changeset", "43",
+                "--directories", "a/", "b/c",
                 "--root-path-changes", "CS1234:$/New/Path", "CS1235:$/Another/Path",
                 "--pat", "somepat",
             }));
@@ -40,11 +41,12 @@ public static class EntryPointTests
         arguments[3].ShouldBe("somedir");
         arguments[4].ShouldBe(42);
         arguments[5].ShouldBe(43);
-        arguments[6].ShouldBeOfType<ImmutableArray<RootPathChange>>().ShouldBe(new[]
+        arguments[6].ShouldBe(new[] { "a/", "b/c" });
+        arguments[7].ShouldBeOfType<ImmutableArray<RootPathChange>>().ShouldBe(new[]
         {
             new RootPathChange(1234, "$/New/Path"),
             new RootPathChange(1235, "$/Another/Path"),
         });
-        arguments[7].ShouldBe("somepat");
+        arguments[8].ShouldBe("somepat");
     }
 }

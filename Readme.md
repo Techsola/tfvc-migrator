@@ -46,6 +46,12 @@ Options:
                                            first changeset under the given source path.
   --max-changeset <max-changeset>          The last changeset to migrate. Defaults to the most recent
                                            changeset under the given source path.
+  --directories <directories>              If this option is used, only the files within the specified
+                                           directories (relative to the root path) will be migrated. If
+                                           a file moves into this filter, the migrated result will
+                                           appear with no prior history. If a file moves out of this
+                                           filter, it will appear to be deleted. Wildcards are not
+                                           currently supported.
   --root-path-changes <root-path-changes>  Followed by one or more arguments with the format
                                            CS1234:$/New/Path. Changes the path that is mapped as the Git
                                            repository root to a new path during a specified changeset.
