@@ -1,7 +1,7 @@
 ﻿namespace TfvcMigrator.Operations;
 
 [DebuggerDisplay("{ToString(),nq}")]
-public sealed class BranchOperation : TopologicalOperation, IEquatable<BranchOperation?>
+public sealed record BranchOperation : TopologicalOperation
 {
     public BranchOperation(BranchIdentity sourceBranch, int sourceBranchChangeset, string sourceBranchPath, BranchIdentity newBranch)
     {
@@ -26,11 +26,6 @@ public sealed class BranchOperation : TopologicalOperation, IEquatable<BranchOpe
     public BranchIdentity NewBranch { get; }
 
     public override string ToString() => $"CS{Changeset}: Branch {SourceBranchPath} at CS{SourceBranchChangeset} to {NewBranch.Path}";
-
-    public override bool Equals(object? obj)
-    {
-        return Equals(obj as BranchOperation);
-    }
 
     public bool Equals(BranchOperation? other)
     {

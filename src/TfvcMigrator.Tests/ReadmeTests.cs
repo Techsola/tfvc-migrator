@@ -18,7 +18,7 @@ public static class ReadmeTests
 
         if (Normalize(actualReadmeCodeBlock) != Normalize(expectedReadmeCodeBlock))
         {
-            Assert.Fail("Update the ‘Command-line arguments’ section in Readme.md using the program output for the --help.");
+            Assert.Fail("Update the ‘Command-line arguments’ section in Readme.md using the program output for --help.");
         }
     }
 

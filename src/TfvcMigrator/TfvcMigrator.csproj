@@ -8,7 +8,7 @@
 
     <Product>TFVC Migrator</Product>
     <Authors>Technology Solutions Associates</Authors>
-    <Copyright>Copyright © 2020–2022 Technology Solutions Associates</Copyright>
+    <Copyright>Copyright © 2020–2023 Technology Solutions Associates</Copyright>
     <AssemblyTitle>TFVC Migrator</AssemblyTitle>
 
     <PublishSingleFile>true</PublishSingleFile>
@@ -21,11 +21,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibGit2Sharp" Version="0.27.0-preview-0175" />
+    <PackageReference Include="LibGit2Sharp" Version="0.27.2" />
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="16.170.0" />
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta3.22114.1" />
-    <PackageReference Include="System.CommandLine.NamingConventionBinder" Version="2.0.0-beta3.22114.1" />
-    <PackageReference Include="TaskTupleAwaiter" Version="2.0.0" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="System.CommandLine.NamingConventionBinder" Version="2.0.0-beta4.22272.1" />
+    <PackageReference Include="TaskTupleAwaiter" Version="2.0.3" />
   </ItemGroup>
 
 </Project>
