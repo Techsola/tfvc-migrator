@@ -12,7 +12,7 @@ namespace TfvcMigrator;
 
 public static class Program
 {
-    public static Task Main(string[] args)
+    public static Task<int> Main(string[] args)
     {
         var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
         {
@@ -58,7 +58,7 @@ public static class Program
         return new RootPathChange(changeset, token[(colonIndex + 1)..]);
     }
 
-    public static async Task MigrateAsync(
+    public static async Task<int> MigrateAsync(
         Uri projectCollectionUrl,
         string rootPath,
         string authors,
@@ -78,7 +78,7 @@ public static class Program
         if (Directory.GetFileSystemEntries(outputDirectory).Any())
         {
             Console.WriteLine($"Cannot create Git repository at {outputDirectory} because the directory is not empty.");
-            return;
+            return 1;
         }
 
         var authorsLookup = LoadAuthors(authors);
@@ -131,7 +131,7 @@ public static class Program
             Console.WriteLine("An entry must be added to the authors file for each of the following TFVC users:");
             foreach (var user in unmappedAuthors)
                 Console.WriteLine(user);
-            return;
+            return 1;
         }
 
         Console.WriteLine("Downloading changesets and converting to commits...");
@@ -336,6 +336,7 @@ public static class Program
         }
 
         Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
+        return 0;
     }
 
     private static ImmutableDictionary<BranchIdentity, ImmutableArray<(string GitRepositoryPath, TfvcItem DownloadSource)>> MapItemsToDownloadSources(
