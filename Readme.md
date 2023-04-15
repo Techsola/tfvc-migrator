@@ -49,10 +49,10 @@ Options:
   --root-path-changes <root-path-changes>  Followed by one or more arguments with the format
                                            CS1234:$/New/Path. Changes the path that is mapped as the Git
                                            repository root to a new path during a specified changeset.
-  --pat <pat>                              Optional PAT, required to access TFVC repositories hosted on
-                                           Azure DevOps Services. If not provided Default Client
-                                           Credentials will be used, these are only suitable for
-                                           on-premise TFS/Azure DevOps Server.
+  --pat <pat>                              Personal access token, required to access TFVC repositories
+                                           hosted on Azure DevOps Services. If not provided, default
+                                           client credentials will be used which are only suitable for
+                                           repositories hosted on Azure DevOps Server on-premises.
   --version                                Show version information
   -?, -h, --help                           Show help and usage information
 ```
