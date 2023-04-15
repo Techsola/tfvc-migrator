@@ -442,7 +442,7 @@ public static class Program
 
         await using var changesetChangesEnumerator = changesets
             .Skip(1)
-            .SelectAwait(changeset => client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1))
+            .SelectAwait(changeset => GetChangesAsync(client, changeset.ChangesetId, trunk.Path))
             .WithLookahead()
             .GetAsyncEnumerator();
 
@@ -553,6 +553,20 @@ public static class Program
         }
 
         return builder.ToImmutable();
+    }
+
+    private static async Task<List<TfvcChange>> GetChangesAsync(TfvcHttpClient client, int changesetId, string rootPath)
+    {
+        if (!PathUtils.IsAbsolute(rootPath))
+            throw new ArgumentException("Root path must be absolute.", nameof(rootPath));
+
+        var changes = await client.GetChangesetChangesAsync(changesetId, top: int.MaxValue - 1);
+
+        changes.RemoveAll(change =>
+            !PathUtils.IsOrContains(rootPath, change.Item.Path)
+            && !PathUtils.IsOrContains(rootPath, change.SourceServerItem));
+
+        return changes;
     }
 
     private static async Task<ImmutableArray<TfvcItem>> DownloadItemsAsync(TfvcHttpClient client, IEnumerable<string> scopePaths, int changeset)
