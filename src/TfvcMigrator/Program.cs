@@ -12,7 +12,7 @@ namespace TfvcMigrator;
 
 public static class Program
 {
-    public static Task Main(string[] args)
+    public static Task<int> Main(string[] args)
     {
         var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
         {
@@ -58,7 +58,7 @@ public static class Program
         return new RootPathChange(changeset, token[(colonIndex + 1)..]);
     }
 
-    public static async Task MigrateAsync(
+    public static async Task<int> MigrateAsync(
         Uri projectCollectionUrl,
         string rootPath,
         string authors,
@@ -74,16 +74,11 @@ public static class Program
             new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
                 .First(name => !string.IsNullOrEmpty(name))!);
 
-        Directory.CreateDirectory(outputDirectory);
-        if (Directory.GetFileSystemEntries(outputDirectory).Any())
-        {
-            Console.WriteLine($"Cannot create Git repository at {outputDirectory} because the directory is not empty.");
-            return;
-        }
+        using var repo = InitRepository(outputDirectory);
+        if (repo is null)
+            return 1;
 
         var authorsLookup = LoadAuthors(authors);
-
-        using var repo = new Repository(Repository.Init(outputDirectory));
 
         Console.WriteLine("Connecting...");
 
@@ -131,7 +126,7 @@ public static class Program
             Console.WriteLine("An entry must be added to the authors file for each of the following TFVC users:");
             foreach (var user in unmappedAuthors)
                 Console.WriteLine(user);
-            return;
+            return 1;
         }
 
         Console.WriteLine("Downloading changesets and converting to commits...");
@@ -336,6 +331,33 @@ public static class Program
         }
 
         Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
+        return 0;
+    }
+
+    private static Repository? InitRepository(string outputDirectory)
+    {
+        Directory.CreateDirectory(outputDirectory);
+
+        var existingFileSystemEntries = Directory.GetFileSystemEntries(outputDirectory);
+        if (!existingFileSystemEntries.Any())
+            return new Repository(Repository.Init(outputDirectory));
+
+        if (existingFileSystemEntries is not [var singleFileSystemEntry]
+            || !".git".Equals(Path.GetFileName(singleFileSystemEntry), StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"Cannot create Git repository at {outputDirectory} because the directory is not empty.");
+            return null;
+        }
+
+        var repository = new Repository(singleFileSystemEntry);
+        if (repository.ObjectDatabase.Any())
+        {
+            repository.Dispose();
+            Console.WriteLine($"A Git repository at {outputDirectory} already exists and is not empty.");
+            return null;
+        }
+
+        return repository;
     }
 
     private static ImmutableDictionary<BranchIdentity, ImmutableArray<(string GitRepositoryPath, TfvcItem DownloadSource)>> MapItemsToDownloadSources(

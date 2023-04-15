@@ -90,3 +90,6 @@ dotnet_diagnostic.SA1641.severity = none
 dotnet_diagnostic.SA1642.severity = none
 dotnet_diagnostic.SA1643.severity = none
 dotnet_diagnostic.SA1649.severity = none
+
+# Workaround for https://github.com/DotNetAnalyzers/StyleCopAnalyzers/issues/3503
+dotnet_diagnostic.SA1010.severity = none

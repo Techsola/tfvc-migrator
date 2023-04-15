@@ -86,6 +86,11 @@ public static class CommandVerifier
             {
                 generator.Emit(OpCodes.Call, typeof(Task).GetProperty(nameof(Task.CompletedTask), BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)!.GetMethod!);
             }
+            else if (@delegate.Method.ReturnType == typeof(Task<int>))
+            {
+                generator.Emit(OpCodes.Ldc_I4_0);
+                generator.Emit(OpCodes.Call, typeof(Task).GetMethod(nameof(Task.FromResult), BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)!.MakeGenericMethod(typeof(int)));
+            }
             else
             {
                 throw new NotImplementedException();
