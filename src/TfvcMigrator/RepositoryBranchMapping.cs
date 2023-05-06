@@ -73,7 +73,7 @@ public readonly struct RepositoryBranchMapping
 
         if (SubdirectoryMapping is var (branch, target))
         {
-            if (PathUtils.IsOrContains(itemPath, target))
+            if (PathUtils.IsOrContains(target, itemPath))
                 return null;
 
             if (PathUtils.IsOrContains(branch, itemPath))
