@@ -367,6 +367,7 @@ public static class Program
         var builder = ImmutableDictionary.CreateBuilder<BranchIdentity, ImmutableArray<(string GitRepositoryPath, TfvcItem DownloadSource)>>();
 
         var itemsBuilder = ImmutableArray.CreateBuilder<(string GitRepositoryPath, TfvcItem DownloadSource)>();
+        var itemPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var (branch, mapping) in branchMappingsInDependentOperationOrder)
         {
@@ -384,11 +385,17 @@ public static class Program
                 }
 
                 if (mapping.GetGitRepositoryPath(item.Path) is { } path)
+                {
+                    if (!itemPaths.Add(path))
+                        throw new InvalidOperationException("The same Git repository path is being added with two different TFVC sources.");
+
                     itemsBuilder.Add((path, item));
+                }
             }
 
             builder.Add(branch, itemsBuilder.ToImmutable());
             itemsBuilder.Clear();
+            itemPaths.Clear();
         }
 
         return builder.ToImmutable();

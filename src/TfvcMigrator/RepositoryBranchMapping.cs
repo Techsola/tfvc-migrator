@@ -50,7 +50,7 @@ public readonly struct RepositoryBranchMapping
         if (!PathUtils.IsAbsolute(newPath))
             throw new ArgumentException("New path must be absolute.", nameof(newPath));
 
-        if (!PathUtils.IsOrContains(oldPath, RootDirectory))
+        if (!PathUtils.IsOrContains(RootDirectory, oldPath))
             throw new InvalidOperationException("The rename does not apply to this mapping.");
 
         if (SubdirectoryMapping is not null)
@@ -73,7 +73,7 @@ public readonly struct RepositoryBranchMapping
 
         if (SubdirectoryMapping is var (branch, target))
         {
-            if (PathUtils.IsOrContains(itemPath, target))
+            if (PathUtils.IsOrContains(target, itemPath))
                 return null;
 
             if (PathUtils.IsOrContains(branch, itemPath))
