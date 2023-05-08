@@ -53,6 +53,12 @@ internal static class PathUtils
         return index == -1 ? path : path[(index + 1)..];
     }
 
+    /// <summary>
+    /// If <paramref name="path"/> is or starts with <paramref name="containingPath"/>, <paramref
+    /// name="containingPath"/> is replaced with <paramref name="newContainingPath"/> in the returned path. Otherwise,
+    /// the unmodified <paramref name="path"/> is returned.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown if any of the paths ends with a trailing slash.</exception>
     public static string ReplaceContainingPath(string path, string containingPath, string newContainingPath)
     {
         if (path.EndsWith('/'))
@@ -65,11 +71,16 @@ internal static class PathUtils
             throw new ArgumentException("Path should not end with a trailing slash.", nameof(newContainingPath));
 
         if (!IsOrContains(containingPath, path))
-            throw new ArgumentException("The specified containing path does not contain the specified path.");
+            return path;
 
         return newContainingPath + path[containingPath.Length..];
     }
 
+    /// <summary>
+    /// If <paramref name="path"/> is or starts with <paramref name="containingPath"/>, the relative part of the path
+    /// (if any) is returned. Otherwise, <see cref="ArgumentException"/> is thrown.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown if any of the paths ends with a trailing slash.</exception>
     public static string RemoveContainingPath(string path, string containingPath)
     {
         if (path.EndsWith('/'))

@@ -42,7 +42,7 @@ public readonly struct RepositoryBranchMapping
     /// </summary>
     public (string BranchDirectory, string TargetDirectory)? SubdirectoryMapping { get; }
 
-    public RepositoryBranchMapping RenameRootDirectory(string oldPath, string newPath)
+    public RepositoryBranchMapping ApplyRename(string oldPath, string newPath)
     {
         if (!PathUtils.IsAbsolute(oldPath))
             throw new ArgumentException("Old path must be absolute.", nameof(oldPath));
@@ -50,15 +50,11 @@ public readonly struct RepositoryBranchMapping
         if (!PathUtils.IsAbsolute(newPath))
             throw new ArgumentException("New path must be absolute.", nameof(newPath));
 
-        if (!PathUtils.IsOrContains(RootDirectory, oldPath))
-            throw new InvalidOperationException("The rename does not apply to this mapping.");
-
-        if (SubdirectoryMapping is not null)
-            throw new NotImplementedException("Research: Renaming and branching might behave differently when subdirectory mapping is involved.");
-
         return new RepositoryBranchMapping(
             PathUtils.ReplaceContainingPath(RootDirectory, oldPath, newPath),
-            subdirectoryMapping: null);
+            SubdirectoryMapping is null ? null : (
+                PathUtils.ReplaceContainingPath(SubdirectoryMapping.Value.BranchDirectory, oldPath, newPath),
+                PathUtils.ReplaceContainingPath(SubdirectoryMapping.Value.TargetDirectory, oldPath, newPath)));
     }
 
     public RepositoryBranchMapping WithSubdirectoryMapping(string branchDirectory, string targetDirectory)
@@ -76,8 +72,7 @@ public readonly struct RepositoryBranchMapping
             if (PathUtils.IsOrContains(target, itemPath))
                 return null;
 
-            if (PathUtils.IsOrContains(branch, itemPath))
-                itemPath = PathUtils.ReplaceContainingPath(itemPath, branch, target);
+            itemPath = PathUtils.ReplaceContainingPath(itemPath, branch, target);
         }
 
         return PathUtils.IsOrContains(RootDirectory, itemPath)

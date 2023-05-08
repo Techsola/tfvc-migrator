@@ -483,7 +483,7 @@ public static class Program
                             var mapping = branchMappings[branch.SourceBranch];
 
                             mapping = PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory)
-                                ? mapping.RenameRootDirectory(branch.SourceBranchPath, branch.NewBranch.Path)
+                                ? mapping.ApplyRename(branch.SourceBranchPath, branch.NewBranch.Path)
                                 : mapping.WithSubdirectoryMapping(branch.NewBranch.Path, branch.SourceBranchPath);
 
                             branchMappings.Add(branch.NewBranch, mapping);
@@ -505,7 +505,13 @@ public static class Program
                         case RenameOperation rename:
                         {
                             if (!branchMappings.Remove(rename.OldIdentity, out var mapping)) throw new NotImplementedException();
-                            branchMappings.Add(rename.NewIdentity, mapping.RenameRootDirectory(rename.OldIdentity.Path, rename.NewIdentity.Path));
+
+                            foreach (var (otherBranch, otherMapping) in branchMappings.ToArray())
+                            {
+                                branchMappings[otherBranch] = otherMapping.ApplyRename(rename.OldIdentity.Path, rename.NewIdentity.Path);
+                            }
+
+                            branchMappings.Add(rename.NewIdentity, mapping.ApplyRename(rename.OldIdentity.Path, rename.NewIdentity.Path));
 
                             if (trunk == rename.OldIdentity) trunk = rename.NewIdentity;
                             break;
