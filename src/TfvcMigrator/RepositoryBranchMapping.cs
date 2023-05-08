@@ -76,8 +76,7 @@ public readonly struct RepositoryBranchMapping
             if (PathUtils.IsOrContains(target, itemPath))
                 return null;
 
-            if (PathUtils.IsOrContains(branch, itemPath))
-                itemPath = PathUtils.ReplaceContainingPath(itemPath, branch, target);
+            itemPath = PathUtils.ReplaceContainingPath(itemPath, branch, target);
         }
 
         return PathUtils.IsOrContains(RootDirectory, itemPath)
