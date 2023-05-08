@@ -62,18 +62,6 @@ public sealed class TopologyAnalyzer
             }
         }
 
-        foreach (var change in changesetChanges)
-        {
-            if (change.ChangeType.HasFlag(VersionControlChangeType.Delete) && currentBranchPaths.Remove(change.Item.Path))
-            {
-                if (change.ChangeType != VersionControlChangeType.Delete)
-                    throw new NotImplementedException("Poorly-understood combination");
-
-                var deletedBranch = branchIdentifier.Delete(changeset, change.Item.Path);
-                yield return new DeleteOperation(changeset, deletedBranch);
-            }
-        }
-
         branchIdentifier.NoFurtherChangesUpTo(changeset - 1);
 
         var (branches, merges) = GetBranchAndMergeOperations(changesetChanges, branchIdentifier);
@@ -88,6 +76,18 @@ public sealed class TopologyAnalyzer
         foreach (var operation in merges)
         {
             yield return operation;
+        }
+
+        foreach (var change in changesetChanges)
+        {
+            if (change.ChangeType.HasFlag(VersionControlChangeType.Delete) && currentBranchPaths.Remove(change.Item.Path))
+            {
+                if (change.ChangeType != VersionControlChangeType.Delete)
+                    throw new NotImplementedException("Poorly-understood combination");
+
+                var deletedBranch = branchIdentifier.Delete(changeset, change.Item.Path);
+                yield return new DeleteOperation(changeset, deletedBranch);
+            }
         }
     }
 

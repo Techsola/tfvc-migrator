@@ -1,6 +1,7 @@
 ﻿using System.CommandLine;
 using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using LibGit2Sharp;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
@@ -526,7 +527,8 @@ public static class Program
                     keySelector: mappingByBranch => mappingByBranch.Branch,
                     dependenciesSelector: mappingByBranch => additionalParents
                         .Where(b => b.Branch == mappingByBranch.Branch)
-                        .Select(b => b.ParentBranch))
+                        .Select(b => b.ParentBranch)
+                        .Where(branchMappings.ContainsKey)) // If the parent branch is also being deleted in the same commit, it doesn't affect the relative order
                 .ToImmutableArray();
 
             yield return new MappingState(
