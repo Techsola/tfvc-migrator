@@ -40,7 +40,7 @@ public readonly struct RepositoryBranchMapping
     /// branch subdirectory are mapped to the branch target directory in the Git commits that are created using this
     /// mapping.
     /// </summary>
-    public (string BranchDirectory, string TargetDirectory)? SubdirectoryMapping { get; }
+    public (string BranchDirectory, string TargetDirectory)? SubdirectoryMapping { get; init; }
 
     public RepositoryBranchMapping ApplyRename(string oldPath, string newPath)
     {
@@ -55,11 +55,6 @@ public readonly struct RepositoryBranchMapping
             SubdirectoryMapping is null ? null : (
                 PathUtils.ReplaceContainingPath(SubdirectoryMapping.Value.BranchDirectory, oldPath, newPath),
                 PathUtils.ReplaceContainingPath(SubdirectoryMapping.Value.TargetDirectory, oldPath, newPath)));
-    }
-
-    public RepositoryBranchMapping WithSubdirectoryMapping(string branchDirectory, string targetDirectory)
-    {
-        return new RepositoryBranchMapping(RootDirectory, subdirectoryMapping: (branchDirectory, targetDirectory));
     }
 
     public string? GetGitRepositoryPath(string itemPath)

@@ -484,9 +484,12 @@ public static class Program
 
                             mapping = PathUtils.IsOrContains(branch.SourceBranchPath, mapping.RootDirectory)
                                 ? mapping.ApplyRename(branch.SourceBranchPath, branch.NewBranch.Path)
-                                : mapping.WithSubdirectoryMapping(
-                                    branch.NewBranch.Path,
-                                    mapping.SubdirectoryMapping?.TargetDirectory ?? branch.SourceBranchPath);
+                                : mapping with
+                                {
+                                    SubdirectoryMapping = (
+                                        branch.NewBranch.Path,
+                                        mapping.SubdirectoryMapping?.TargetDirectory ?? branch.SourceBranchPath),
+                                };
 
                             branchMappings.Add(branch.NewBranch, mapping);
                             break;
