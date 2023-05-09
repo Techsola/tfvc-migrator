@@ -7,7 +7,8 @@ public sealed class TopologyAnalyzer
 {
     private readonly Stack<RootPathChange> rootPathChangeStack;
     private readonly BranchIdentifier branchIdentifier;
-    private readonly HashSet<string> currentBranchPaths;
+    private readonly HashSet<string> currentBranchSourcePaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> currentBranchPaths = new(StringComparer.OrdinalIgnoreCase);
     private string currentRootPath;
 
     public TopologyAnalyzer(BranchIdentity initialBranch, ImmutableArray<RootPathChange> rootPathChanges)
@@ -20,7 +21,7 @@ public sealed class TopologyAnalyzer
 
         currentRootPath = initialBranch.Path;
 
-        currentBranchPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { currentRootPath };
+        currentBranchPaths.Add(currentRootPath);
     }
 
     public IEnumerable<TopologicalOperation> GetTopologicalOperations(IReadOnlyList<TfvcChange> changesetChanges)
@@ -50,15 +51,26 @@ public sealed class TopologyAnalyzer
 
         foreach (var change in changesetChanges)
         {
-            if (change.ChangeType.HasFlag(VersionControlChangeType.Rename) && currentBranchPaths.Remove(change.SourceServerItem))
+            if (change.ChangeType.HasFlag(VersionControlChangeType.Rename))
             {
-                if (change.ChangeType != VersionControlChangeType.Rename)
-                    throw new NotImplementedException("Poorly-understood combination");
+                if (currentBranchPaths.Remove(change.SourceServerItem))
+                {
+                    if (change.ChangeType != VersionControlChangeType.Rename)
+                        throw new NotImplementedException("Poorly-understood combination");
 
-                var newIdentity = new BranchIdentity(changeset, change.Item.Path);
-                branchIdentifier.Rename(changeset, change.SourceServerItem, change.Item.Path, out var oldIdentity);
-                yield return new RenameOperation(oldIdentity, newIdentity);
-                currentBranchPaths.Add(change.Item.Path);
+                    var newIdentity = new BranchIdentity(changeset, change.Item.Path);
+                    branchIdentifier.Rename(changeset, change.SourceServerItem, change.Item.Path, out var oldIdentity);
+                    yield return new RenameOperation(oldIdentity, newIdentity);
+                    currentBranchPaths.Add(change.Item.Path);
+                }
+                else if (currentBranchSourcePaths.Remove(change.SourceServerItem))
+                {
+                    if (change.ChangeType != VersionControlChangeType.Rename)
+                        throw new NotImplementedException("Poorly-understood combination");
+
+                    yield return new SourceRenameOperation(changeset, change.SourceServerItem, change.Item.Path);
+                    currentBranchSourcePaths.Add(change.Item.Path);
+                }
             }
         }
 
@@ -70,6 +82,7 @@ public sealed class TopologyAnalyzer
         {
             yield return operation;
             branchIdentifier.Add(operation.NewBranch);
+            currentBranchSourcePaths.Add(operation.SourceBranchPath);
             currentBranchPaths.Add(operation.NewBranch.Path);
         }
 

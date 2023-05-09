@@ -521,6 +521,25 @@ public static class Program
                             if (trunk == rename.OldIdentity) trunk = rename.NewIdentity;
                             break;
                         }
+
+                        case SourceRenameOperation sourceRename:
+                        {
+                            foreach (var (branch, mapping) in branchMappings.ToArray())
+                            {
+                                if (string.Equals(mapping.SubdirectoryMapping?.TargetDirectory, sourceRename.OldPath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    branchMappings[branch] = mapping with
+                                    {
+                                        SubdirectoryMapping = mapping.SubdirectoryMapping!.Value with
+                                        {
+                                            TargetDirectory = sourceRename.NewPath,
+                                        },
+                                    };
+                                }
+                            }
+
+                            break;
+                        }
                     }
                 }
             }
