@@ -524,6 +524,9 @@ public static class Program
 
                         case SourceRenameOperation sourceRename:
                         {
+                            // Not sure about the result. Review CS11926 to decide how to migrate ideally, and see if this should be a root change etc.
+                            // (ie: Should migration have started _inside_ that folder? Decide about .tfignore history?)
+
                             foreach (var (branch, mapping) in branchMappings.ToArray())
                             {
                                 if (string.Equals(mapping.SubdirectoryMapping?.TargetDirectory, sourceRename.OldPath, StringComparison.OrdinalIgnoreCase))
