@@ -1,7 +1,6 @@
 ﻿using System.CommandLine;
 using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
-using System.Linq;
 using System.Text;
 using LibGit2Sharp;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
