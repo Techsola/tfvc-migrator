@@ -12,7 +12,7 @@ namespace TfvcMigrator;
 
 public static class Program
 {
-	public static Task<int> Main(string[] args)
+    public static Task<int> Main(string[] args)
     {
         var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
         {
@@ -126,10 +126,10 @@ public static class Program
             Console.WriteLine("A valid email address must be added to the authors file for each of the following TFVC users:");
             foreach (var user in unmappedAuthors)
             {
-	            Console.WriteLine(user.UniqueName);
-				await File.AppendAllTextAsync(authors, $"{user.UniqueName} = {user.DisplayName} <email>{Environment.NewLine}");
-			}
-			return 1;
+                Console.WriteLine(user.UniqueName);
+                await File.AppendAllTextAsync(authors, $"{user.UniqueName} = {user.DisplayName} <email>{Environment.NewLine}");
+            }
+            return 1;
         }
 
         Console.WriteLine("Downloading changesets and converting to commits...");
@@ -550,8 +550,8 @@ public static class Program
 
         if (!File.Exists(authorsPath))
         {
-	        Console.WriteLine($"Authors file not found. Creating: {authorsPath}");
-	        File.Create(authorsPath);
+            Console.WriteLine($"Authors file not found. Creating: {authorsPath}");
+            File.Create(authorsPath);
             return builder.ToImmutable();
         }
 
