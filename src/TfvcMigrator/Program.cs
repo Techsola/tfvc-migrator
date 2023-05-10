@@ -1,7 +1,6 @@
 ﻿using System.CommandLine;
 using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
-using System.Linq;
 using System.Text;
 using LibGit2Sharp;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
@@ -13,7 +12,7 @@ namespace TfvcMigrator;
 
 public static class Program
 {
-    public static Task<int> Main(string[] args)
+	public static Task<int> Main(string[] args)
     {
         var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
         {
@@ -117,17 +116,20 @@ public static class Program
         var unmappedAuthors = changesets.Select(c => c.Author)
             .Concat(changesets.Select(c => c.CheckedInBy))
             .Concat(allLabels.Select(l => l.Owner))
-            .Select(identity => identity.UniqueName)
-            .Where(name => !authorsLookup.ContainsKey(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(identity => !authorsLookup.ContainsKey(identity.UniqueName))
+            .GroupBy(i => i.UniqueName)
+            .Select(grouping => grouping.First())
             .ToList();
 
         if (unmappedAuthors.Any())
         {
-            Console.WriteLine("An entry must be added to the authors file for each of the following TFVC users:");
+            Console.WriteLine("A valid email address must be added to the authors file for each of the following TFVC users:");
             foreach (var user in unmappedAuthors)
-                Console.WriteLine(user);
-            return 1;
+            {
+	            Console.WriteLine(user.UniqueName);
+				await File.AppendAllTextAsync(authors, $"{user.UniqueName} = {user.DisplayName} <email>{Environment.NewLine}");
+			}
+			return 1;
         }
 
         Console.WriteLine("Downloading changesets and converting to commits...");
@@ -546,6 +548,13 @@ public static class Program
     {
         var builder = ImmutableDictionary.CreateBuilder<string, Identity>(StringComparer.OrdinalIgnoreCase);
 
+        if (!File.Exists(authorsPath))
+        {
+	        Console.WriteLine($"Authors file not found. Creating: {authorsPath}");
+	        File.Create(authorsPath);
+            return builder.ToImmutable();
+        }
+
         using (var reader = File.OpenText(authorsPath))
         {
             while (reader.ReadLine() is { } line)
@@ -564,6 +573,8 @@ public static class Program
 
                 var name = gitIdentity[..openingAngleBracketIndex].TrimEnd().ToString();
                 var email = gitIdentity[(openingAngleBracketIndex + 1)..^1].Trim().ToString();
+
+                if (email == "email") throw new NotImplementedException("<email> in authors file must be replaced with a valid email address");
 
                 builder.Add(tfvcIdentity, new Identity(name, email));
             }
