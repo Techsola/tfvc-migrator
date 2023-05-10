@@ -39,8 +39,8 @@ Arguments:
 Options:
   --authors <authors> (REQUIRED)           Path to an authors file with lines mapping TFVC usernames to
                                            Git authors, e.g.: DOMAIN\John = John Doe <john@doe.com>
-										   Auto-generated if not found with placeholders, eg: 
-										   DOMAIN\John = John Doe <email>
+										   Auto-generates file at provided path with placeholders if
+										   not found, eg: DOMAIN\John = John Doe <email>
   --out-dir <out-dir>                      The directory path at which to create a new Git repository.
                                            Defaults to the last segment in the root path under the
                                            current directory.

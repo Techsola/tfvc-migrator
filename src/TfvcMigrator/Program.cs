@@ -21,7 +21,7 @@ public static class Program
             new Option<string>("--authors")
             {
                 IsRequired = true,
-                Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com>",
+                Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com> Auto-generates file at provided path with placeholders if not found, eg: DOMAIN\\John = John Doe <email>",
             },
             new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
             new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
