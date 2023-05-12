@@ -80,10 +80,6 @@ public static class Program
             if (repo is null)
                 return 1;
 
-            await using var authorsFileStream = LoadAuthorsFileStream(authors);
-            var fileHasNewline = FileEndsInNewline(authorsFileStream);
-            var authorsLookup = LoadAuthors(authorsFileStream);
-
             Console.WriteLine("Connecting...");
 
             using var connection = new VssConnection(
@@ -117,26 +113,11 @@ public static class Program
                     top: int.MaxValue)
             ).ConfigureAwait(false);
 
-            var unmappedAuthors = changesets.Select(c => c.Author)
-                .Concat(changesets.Select(c => c.CheckedInBy))
-                .Concat(allLabels.Select(l => l.Owner))
-                .Where(identity => !authorsLookup.ContainsKey(identity.UniqueName))
-                .DistinctBy(i => i.UniqueName, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            if (unmappedAuthors.Any())
-            {
-                Console.WriteLine("A valid email address must be added to the authors file for each of the following TFVC users:");
-                await using var writer = new StreamWriter(authors, append: true);
-                if (!fileHasNewline) await writer.WriteLineAsync();
-
-                foreach (var user in unmappedAuthors)
-                {
-                    Console.WriteLine(user.UniqueName);
-                    await writer.WriteLineAsync($"{user.UniqueName} = {user.DisplayName} <email>");
-                }
-                return 1;
-            }
+            var authorsLookup = await LoadAuthors(
+                authors,
+                changesets.Select(c => c.Author)
+                    .Concat(changesets.Select(c => c.CheckedInBy))
+                    .Concat(allLabels.Select(l => l.Owner)));
 
             Console.WriteLine("Downloading changesets and converting to commits...");
 
@@ -564,11 +545,36 @@ public static class Program
         return new FileStream(authorsPath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Write);
     }
 
-    private static ImmutableDictionary<string, Identity> LoadAuthors(Stream authorsFileStream)
+    private static async Task<ImmutableDictionary<string, Identity>> LoadAuthors(string authorsLookupPath, IEnumerable<IdentityRef> changesetAuthors)
+    {
+        await using var authorsFileStream = LoadAuthorsFileStream(authorsLookupPath);
+        var authorsLookup = LoadAuthors(authorsFileStream, leaveStreamOpen: true);
+
+        var unmappedAuthors = changesetAuthors
+            .Where(identity => !authorsLookup.ContainsKey(identity.UniqueName))
+            .DistinctBy(i => i.UniqueName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (!unmappedAuthors.Any()) return authorsLookup;
+
+        await using var writer = new StreamWriter(authorsLookupPath, append: true);
+        if (!FileEndsInNewline(authorsFileStream)) await writer.WriteLineAsync();
+
+        foreach (var user in unmappedAuthors)
+            await writer.WriteLineAsync($"{user.UniqueName} = {user.DisplayName} <email>");
+
+        var outMessageToWrite = $"""
+                A valid email address must be added to the authors file for each of the following TFVC users:
+                {string.Join(Environment.NewLine, unmappedAuthors.Select(a => a.UniqueName))}
+                """;
+        throw new CommandLineException(outMessageToWrite);
+    }
+
+    private static ImmutableDictionary<string, Identity> LoadAuthors(Stream authorsFileStream, bool leaveStreamOpen)
     {
         var builder = ImmutableDictionary.CreateBuilder<string, Identity>(StringComparer.OrdinalIgnoreCase);
 
-        using var reader = new StreamReader(authorsFileStream);
+        using var reader = new StreamReader(authorsFileStream, leaveOpen: leaveStreamOpen);
         while (reader.ReadLine() is { } line)
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
@@ -660,9 +666,10 @@ public static class Program
         var streamStartsOnNewLine = true;
         if (fileStream.Length <= 0) return streamStartsOnNewLine;
 
+        var position = fileStream.Position;
         fileStream.Seek(-1, SeekOrigin.End);
         streamStartsOnNewLine = (char)((byte)fileStream.ReadByte()) == '\n';
-        fileStream.Seek(0, SeekOrigin.Begin);
+        fileStream.Seek(position, SeekOrigin.Begin);
 
         return streamStartsOnNewLine;
     }
