@@ -68,273 +68,285 @@ public static class Program
         ImmutableArray<RootPathChange> rootPathChanges = default,
         string? pat = null)
     {
-        if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
-
-        var outputDirectory = Path.GetFullPath(
-            new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
-                .First(name => !string.IsNullOrEmpty(name))!);
-
-        using var repo = InitRepository(outputDirectory);
-        if (repo is null)
-            return 1;
-
-        var authorsLookup = LoadAuthors(authors);
-
-        Console.WriteLine("Connecting...");
-
-        using var connection = new VssConnection(
-            projectCollectionUrl,
-            pat is not null
-                ? new VssBasicCredential(userName: null, password: pat)
-                : new VssCredentials());
-
-        using var client = await connection.GetClientAsync<TfvcHttpClient>();
-
-        Console.WriteLine("Downloading changeset and label metadata...");
-
-        var (changesets, allLabels) = await (
-            client.GetChangesetsAsync(
-                maxCommentLength: int.MaxValue,
-                top: int.MaxValue,
-                orderby: "ID asc",
-                searchCriteria: new TfvcChangesetSearchCriteria
-                {
-                    FollowRenames = true,
-                    ItemPath = rootPath,
-                    FromId = minChangeset ?? 0,
-                    ToId = maxChangeset ?? 0,
-                }),
-            client.GetLabelsAsync(
-                new TfvcLabelRequestData
-                {
-                    MaxItemCount = int.MaxValue,
-                    LabelScope = rootPath,
-                },
-                top: int.MaxValue)
-        ).ConfigureAwait(false);
-
-        var unmappedAuthors = changesets.Select(c => c.Author)
-            .Concat(changesets.Select(c => c.CheckedInBy))
-            .Concat(allLabels.Select(l => l.Owner))
-            .Where(identity => !authorsLookup.ContainsKey(identity.UniqueName))
-            .GroupBy(i => i.UniqueName)
-            .Select(grouping => grouping.First())
-            .ToList();
-
-        if (unmappedAuthors.Any())
+        try
         {
-            Console.WriteLine("A valid email address must be added to the authors file for each of the following TFVC users:");
-            foreach (var user in unmappedAuthors)
-            {
-                Console.WriteLine(user.UniqueName);
-                await File.AppendAllTextAsync(authors, $"{user.UniqueName} = {user.DisplayName} <email>{Environment.NewLine}");
-            }
-            return 1;
-        }
+            if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
 
-        Console.WriteLine("Downloading changesets and converting to commits...");
+            var outputDirectory = Path.GetFullPath(
+                new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
+                    .First(name => !string.IsNullOrEmpty(name))!);
 
-        var labelsByChangesetTask = GetLabelsByChangesetAsync(client, allLabels);
+            using var repo = InitRepository(outputDirectory);
+            if (repo is null)
+                return 1;
 
-        var emptyBlob = new Lazy<Blob>(() => repo.ObjectDatabase.CreateBlob(Stream.Null));
+            await using var authorsFileStream = LoadAuthorsFileStream(authors);
+            var fileHasNewline = FileEndsInNewline(authorsFileStream);
+            var authorsLookup = LoadAuthors(authorsFileStream);
 
-        var initialBranch = new BranchIdentity(changesets.First().ChangesetId, rootPath);
+            Console.WriteLine("Connecting...");
 
-        var heads = new Dictionary<BranchIdentity, Branch>();
+            using var connection = new VssConnection(
+                projectCollectionUrl,
+                pat is not null
+                    ? new VssBasicCredential(userName: null, password: pat)
+                    : new VssCredentials());
 
-        var timedProgress = TimedProgress.Start();
+            using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
-        var downloadedBlobsByHash = new Dictionary<string, Blob>();
-        var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>>();
+            Console.WriteLine("Downloading changeset and label metadata...");
 
-        await using var mappingStateAndItemsEnumerator =
-            EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
-                .SelectAwait(async state => (
-                    MappingState: state,
-                    // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
-                    Items: await DownloadItemsAsync(
-                        client,
-                        PathUtils.GetNonOverlappingPaths(
-                            state.BranchMappingsInDependentOperationOrder.Select(branchMapping => branchMapping.Mapping.RootDirectory)),
-                        state.Changeset)))
-                .WithLookahead()
-                .GetAsyncEnumerator();
-
-        foreach (var changeset in changesets)
-        {
-            ReportProgress(changeset.ChangesetId, changesets.Count, timedProgress);
-
-            if (!await mappingStateAndItemsEnumerator.MoveNextAsync())
-                throw new InvalidOperationException("There should be one mapping state for each changeset.");
-
-            var (mappingState, currentItems) = mappingStateAndItemsEnumerator.Current;
-            if (mappingState.Changeset != changeset.ChangesetId)
-                throw new InvalidOperationException("Enumerator and loop are out of sync");
-
-            var mappedItems = MapItemsToDownloadSources(mappingState.BranchMappingsInDependentOperationOrder, currentItems);
-
-            var toDownload = mappedItems.Values
-                .SelectMany(items => items, (_, item) => item.DownloadSource)
-                .Where(source => source.Size > 0 && !downloadedBlobsByHash.ContainsKey(source.HashValue))
-                .GroupBy(source => source.HashValue, (_, sources) => sources.First())
-                .ToImmutableArray();
-
-            if (toDownload.Any())
-            {
-                var results = await toDownload.SelectAwaitParallel(
-                    async source =>
+            var (changesets, allLabels) = await (
+                client.GetChangesetsAsync(
+                    maxCommentLength: int.MaxValue,
+                    top: int.MaxValue,
+                    orderby: "ID asc",
+                    searchCriteria: new TfvcChangesetSearchCriteria
                     {
-                        var versionDescriptor = new TfvcVersionDescriptor(
-                            TfvcVersionOption.None,
-                            TfvcVersionType.Changeset,
-                            source.ChangesetVersion.ToString(CultureInfo.InvariantCulture));
-
-                        await using var stream = await client.GetItemContentAsync(source.Path, versionDescriptor: versionDescriptor).ConfigureAwait(false);
-
-                        Blob blob;
-                        lock (downloadedBlobsByHash)
-                            blob = repo.ObjectDatabase.CreateBlob(stream);
-
-                        if (blob.Size != source.Size)
-                            throw new NotImplementedException("Download stream length does not match expected file size.");
-
-                        if (!blob.IsBinary)
-                        {
-                            await using var blobStream = (UnmanagedMemoryStream)blob.GetContentStream();
-                            await using var renormalizedStream = Utils.RenormalizeCrlfIfNeeded(blobStream);
-
-                            if (renormalizedStream is not null)
-                            {
-                                lock (downloadedBlobsByHash)
-                                    blob = repo.ObjectDatabase.CreateBlob(renormalizedStream);
-                            }
-                        }
-
-                        return (source.HashValue, blob);
+                        FollowRenames = true,
+                        ItemPath = rootPath,
+                        FromId = minChangeset ?? 0,
+                        ToId = maxChangeset ?? 0,
+                    }),
+                client.GetLabelsAsync(
+                    new TfvcLabelRequestData
+                    {
+                        MaxItemCount = int.MaxValue,
+                        LabelScope = rootPath,
                     },
-                    degreeOfParallelism: 10,
-                    CancellationToken.None).ConfigureAwait(false);
+                    top: int.MaxValue)
+            ).ConfigureAwait(false);
 
-                foreach (var (hash, blob) in results)
-                    downloadedBlobsByHash.Add(hash, blob);
-            }
+            var unmappedAuthors = changesets.Select(c => c.Author)
+                .Concat(changesets.Select(c => c.CheckedInBy))
+                .Concat(allLabels.Select(l => l.Owner))
+                .Where(identity => !authorsLookup.ContainsKey(identity.UniqueName))
+                .DistinctBy(i => i.UniqueName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
 
-            foreach (var operation in mappingState.TopologicalOperations)
+            if (unmappedAuthors.Any())
             {
-                switch (operation)
-                {
-                    case DeleteOperation delete:
-                    {
-                        if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
-                        repo.Branches.Remove(head);
-                        break;
-                    }
+                Console.WriteLine("A valid email address must be added to the authors file for each of the following TFVC users:");
+                await using var writer = new StreamWriter(authors, append: true);
+                if (!fileHasNewline) await writer.WriteLineAsync();
 
-                    case RenameOperation rename:
-                    {
-                        if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
-                        heads.Add(rename.NewIdentity, head);
-                        break;
-                    }
+                foreach (var user in unmappedAuthors)
+                {
+                    Console.WriteLine(user.UniqueName);
+                    await writer.WriteLineAsync($"{user.UniqueName} = {user.DisplayName} <email>");
                 }
+                return 1;
             }
 
-            var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
-            var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
-            var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
-            var commits = new List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>();
+            Console.WriteLine("Downloading changesets and converting to commits...");
 
-            foreach (var (branch, _) in mappingState.BranchMappingsInDependentOperationOrder)
+            var labelsByChangesetTask = GetLabelsByChangesetAsync(client, allLabels);
+
+            var emptyBlob = new Lazy<Blob>(() => repo.ObjectDatabase.CreateBlob(Stream.Null));
+
+            var initialBranch = new BranchIdentity(changesets.First().ChangesetId, rootPath);
+
+            var heads = new Dictionary<BranchIdentity, Branch>();
+
+            var timedProgress = TimedProgress.Start();
+
+            var downloadedBlobsByHash = new Dictionary<string, Blob>();
+            var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>>();
+
+            await using var mappingStateAndItemsEnumerator =
+                EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
+                    .SelectAwait(async state => (
+                        MappingState: state,
+                        // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
+                        Items: await DownloadItemsAsync(
+                            client,
+                            PathUtils.GetNonOverlappingPaths(
+                                state.BranchMappingsInDependentOperationOrder.Select(branchMapping => branchMapping.Mapping.RootDirectory)),
+                            state.Changeset)))
+                    .WithLookahead()
+                    .GetAsyncEnumerator();
+
+            foreach (var changeset in changesets)
             {
-                var builder = new TreeDefinition();
+                ReportProgress(changeset.ChangesetId, changesets.Count, timedProgress);
 
-                foreach (var (gitRepositoryPath, downloadSource) in mappedItems[branch])
+                if (!await mappingStateAndItemsEnumerator.MoveNextAsync())
+                    throw new InvalidOperationException("There should be one mapping state for each changeset.");
+
+                var (mappingState, currentItems) = mappingStateAndItemsEnumerator.Current;
+                if (mappingState.Changeset != changeset.ChangesetId)
+                    throw new InvalidOperationException("Enumerator and loop are out of sync");
+
+                var mappedItems = MapItemsToDownloadSources(mappingState.BranchMappingsInDependentOperationOrder, currentItems);
+
+                var toDownload = mappedItems.Values
+                    .SelectMany(items => items, (_, item) => item.DownloadSource)
+                    .Where(source => source.Size > 0 && !downloadedBlobsByHash.ContainsKey(source.HashValue))
+                    .GroupBy(source => source.HashValue, (_, sources) => sources.First())
+                    .ToImmutableArray();
+
+                if (toDownload.Any())
                 {
-                    var blob = downloadSource.Size > 0
-                        ? downloadedBlobsByHash[downloadSource.HashValue]
-                        : emptyBlob.Value;
+                    var results = await toDownload.SelectAwaitParallel(
+                        async source =>
+                        {
+                            var versionDescriptor = new TfvcVersionDescriptor(
+                                TfvcVersionOption.None,
+                                TfvcVersionType.Changeset,
+                                source.ChangesetVersion.ToString(CultureInfo.InvariantCulture));
 
-                    builder.Add(gitRepositoryPath, blob, Mode.NonExecutableFile);
+                            await using var stream = await client.GetItemContentAsync(source.Path, versionDescriptor: versionDescriptor).ConfigureAwait(false);
+
+                            Blob blob;
+                            lock (downloadedBlobsByHash)
+                                blob = repo.ObjectDatabase.CreateBlob(stream);
+
+                            if (blob.Size != source.Size)
+                                throw new NotImplementedException("Download stream length does not match expected file size.");
+
+                            if (!blob.IsBinary)
+                            {
+                                await using var blobStream = (UnmanagedMemoryStream)blob.GetContentStream();
+                                await using var renormalizedStream = Utils.RenormalizeCrlfIfNeeded(blobStream);
+
+                                if (renormalizedStream is not null)
+                                {
+                                    lock (downloadedBlobsByHash)
+                                        blob = repo.ObjectDatabase.CreateBlob(renormalizedStream);
+                                }
+                            }
+
+                            return (source.HashValue, blob);
+                        },
+                        degreeOfParallelism: 10,
+                        CancellationToken.None).ConfigureAwait(false);
+
+                    foreach (var (hash, blob) in results)
+                        downloadedBlobsByHash.Add(hash, blob);
                 }
 
-                var parents = new List<Commit>();
-
-                // Workaround: use .NET Core extension method rather than buggy extension method exposed by Microsoft.VisualStudio.Services.Client package.
-                // https://developercommunity.visualstudio.com/content/problem/996912/client-nuget-package-microsoftvisualstudioservices.html
-                var head = CollectionExtensions.GetValueOrDefault(heads, branch);
-                if (head is not null) parents.Add(head.Tip);
-
-                foreach (var (_, parentChangeset, parentBranch) in mappingState.AdditionalParents.Where(t => t.Branch == branch))
+                foreach (var operation in mappingState.TopologicalOperations)
                 {
-                    if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
-                        && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                    switch (operation)
                     {
-                        parents.Add(commit);
+                        case DeleteOperation delete:
+                            {
+                                if (!heads.Remove(delete.Branch, out var head)) throw new NotImplementedException();
+                                repo.Branches.Remove(head);
+                                break;
+                            }
+
+                        case RenameOperation rename:
+                            {
+                                if (!heads.Remove(rename.OldIdentity, out var head)) throw new NotImplementedException();
+                                heads.Add(rename.NewIdentity, head);
+                                break;
+                            }
                     }
-                    else
+                }
+
+                var author = new Signature(authorsLookup[changeset.Author.UniqueName], changeset.CreatedDate);
+                var committer = new Signature(authorsLookup[changeset.CheckedInBy.UniqueName], changeset.CreatedDate);
+                var message = $"{changeset.Comment}\n\n[Migrated from CS{changeset.ChangesetId}]";
+                var commits = new List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>();
+
+                foreach (var (branch, _) in mappingState.BranchMappingsInDependentOperationOrder)
+                {
+                    var builder = new TreeDefinition();
+
+                    foreach (var (gitRepositoryPath, downloadSource) in mappedItems[branch])
                     {
-                        throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
+                        var blob = downloadSource.Size > 0
+                            ? downloadedBlobsByHash[downloadSource.HashValue]
+                            : emptyBlob.Value;
+
+                        builder.Add(gitRepositoryPath, blob, Mode.NonExecutableFile);
+                    }
+
+                    var parents = new List<Commit>();
+
+                    // Workaround: use .NET Core extension method rather than buggy extension method exposed by Microsoft.VisualStudio.Services.Client package.
+                    // https://developercommunity.visualstudio.com/content/problem/996912/client-nuget-package-microsoftvisualstudioservices.html
+                    var head = CollectionExtensions.GetValueOrDefault(heads, branch);
+                    if (head is not null) parents.Add(head.Tip);
+
+                    foreach (var (_, parentChangeset, parentBranch) in mappingState.AdditionalParents.Where(t => t.Branch == branch))
+                    {
+                        if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
+                            && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                        {
+                            parents.Add(commit);
+                        }
+                        else
+                        {
+                            throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
+                        }
+                    }
+
+                    if (!commits.Any()) commitsByChangeset.Add(changeset.ChangesetId, commits);
+
+                    var tree = repo.ObjectDatabase.CreateTree(builder);
+
+                    var requireCommit = mappingState.TopologicalOperations.Any(operation =>
+                        branch == (
+                            (operation as MergeOperation)?.TargetBranch
+                            ?? (operation as BranchOperation)?.NewBranch
+                            ?? (operation as RenameOperation)?.NewIdentity));
+
+                    if (requireCommit || tree.Sha != head?.Tip.Tree.Sha)
+                    {
+                        var newBranchName = branch == mappingState.Trunk ? "main" : GetValidGitBranchName(branch.Path);
+                        var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
+
+                        commits.Add((commit, branch, WasCreatedForChangeset: true));
+
+                        // Make sure HEAD is not pointed at a branch
+                        repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
+
+                        if (head is not null) repo.Branches.Remove(head);
+                        heads[branch] = repo.Branches.Add(newBranchName, commit);
+                    }
+                    else if (head is not null)
+                    {
+                        // Even though there is not a new commit, make it possible to find the commit that should be the
+                        // parent commit if the current changeset is a parent changeset.
+                        commits.Add((head.Tip, branch, WasCreatedForChangeset: false));
                     }
                 }
 
-                if (!commits.Any()) commitsByChangeset.Add(changeset.ChangesetId, commits);
+                timedProgress.Increment();
+            }
 
-                var tree = repo.ObjectDatabase.CreateTree(builder);
-
-                var requireCommit = mappingState.TopologicalOperations.Any(operation =>
-                    branch == (
-                        (operation as MergeOperation)?.TargetBranch
-                        ?? (operation as BranchOperation)?.NewBranch
-                        ?? (operation as RenameOperation)?.NewIdentity));
-
-                if (requireCommit || tree.Sha != head?.Tip.Tree.Sha)
+            foreach (var (changeset, labels) in await labelsByChangesetTask.ConfigureAwait(false))
+            {
+                if (commitsByChangeset.TryGetValue(changeset, out var commits))
                 {
-                    var newBranchName = branch == mappingState.Trunk ? "main" : GetValidGitBranchName(branch.Path);
-                    var commit = repo.ObjectDatabase.CreateCommit(author, committer, message, tree, parents, prettifyMessage: true);
+                    var commitsCreatedForChangeset = commits.Where(c => c.WasCreatedForChangeset).ToList();
 
-                    commits.Add((commit, branch, WasCreatedForChangeset: true));
-
-                    // Make sure HEAD is not pointed at a branch
-                    repo.Refs.UpdateTarget(repo.Refs.Head, commit.Id);
-
-                    if (head is not null) repo.Branches.Remove(head);
-                    heads[branch] = repo.Branches.Add(newBranchName, commit);
-                }
-                else if (head is not null)
-                {
-                    // Even though there is not a new commit, make it possible to find the commit that should be the
-                    // parent commit if the current changeset is a parent changeset.
-                    commits.Add((head.Tip, branch, WasCreatedForChangeset: false));
+                    foreach (var (commit, branch, _) in commitsCreatedForChangeset)
+                    {
+                        foreach (var label in labels)
+                        {
+                            repo.Tags.Add(
+                                GetValidGitBranchName(commitsCreatedForChangeset.Count > 1
+                                    ? label.Name + '-' + PathUtils.GetLeaf(branch.Path)
+                                    : label.Name),
+                                commit,
+                                new Signature(authorsLookup[label.Owner.UniqueName], label.ModifiedDate),
+                                label.Description);
+                        }
+                    }
                 }
             }
 
-            timedProgress.Increment();
+            Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
+            return 0;
         }
-
-        foreach (var (changeset, labels) in await labelsByChangesetTask.ConfigureAwait(false))
+        catch (CommandLineException ex)
         {
-            if (commitsByChangeset.TryGetValue(changeset, out var commits))
-            {
-                var commitsCreatedForChangeset = commits.Where(c => c.WasCreatedForChangeset).ToList();
-
-                foreach (var (commit, branch, _) in commitsCreatedForChangeset)
-                {
-                    foreach (var label in labels)
-                    {
-                        repo.Tags.Add(
-                            GetValidGitBranchName(commitsCreatedForChangeset.Count > 1
-                                ? label.Name + '-' + PathUtils.GetLeaf(branch.Path)
-                                : label.Name),
-                            commit,
-                            new Signature(authorsLookup[label.Owner.UniqueName], label.ModifiedDate),
-                            label.Description);
-                    }
-                }
-            }
+            Console.WriteLine(ex.Message);
+            return ex.ExitCode;
         }
-
-        Console.WriteLine($"\rAll {changesets.Count} changesets migrated successfully.");
-        return 0;
     }
 
     private static Repository? InitRepository(string outputDirectory)
@@ -544,40 +556,39 @@ public static class Program
         }
     }
 
-    private static ImmutableDictionary<string, Identity> LoadAuthors(string authorsPath)
+    private static FileStream LoadAuthorsFileStream(string authorsPath)
+    {
+        if (!File.Exists(authorsPath))
+            Console.WriteLine($"Authors file not found. File will be created at: {authorsPath}");
+
+        return new FileStream(authorsPath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Write);
+    }
+
+    private static ImmutableDictionary<string, Identity> LoadAuthors(Stream authorsFileStream)
     {
         var builder = ImmutableDictionary.CreateBuilder<string, Identity>(StringComparer.OrdinalIgnoreCase);
 
-        if (!File.Exists(authorsPath))
+        using var reader = new StreamReader(authorsFileStream);
+        while (reader.ReadLine() is { } line)
         {
-            Console.WriteLine($"Authors file not found. Creating: {authorsPath}");
-            File.Create(authorsPath);
-            return builder.ToImmutable();
-        }
+            if (string.IsNullOrWhiteSpace(line)) continue;
 
-        using (var reader = File.OpenText(authorsPath))
-        {
-            while (reader.ReadLine() is { } line)
-            {
-                if (string.IsNullOrWhiteSpace(line)) continue;
+            var equalsIndex = line.IndexOf('=');
+            if (equalsIndex == -1) throw new CommandLineException("Missing '=' in authors file.");
 
-                var equalsIndex = line.IndexOf('=');
-                if (equalsIndex == -1) throw new NotImplementedException("Missing '=' in authors file");
+            var tfvcIdentity = line.AsSpan(0, equalsIndex).Trim().ToString();
 
-                var tfvcIdentity = line.AsSpan(0, equalsIndex).Trim().ToString();
+            var gitIdentity = line.AsSpan(equalsIndex + 1).Trim();
+            var openingAngleBracketIndex = gitIdentity.IndexOf('<');
+            if (openingAngleBracketIndex == -1) throw new CommandLineException("Missing '<' in authors file.");
+            if (gitIdentity[^1] != '>') throw new CommandLineException("Line does not end with '>' in authors file.");
 
-                var gitIdentity = line.AsSpan(equalsIndex + 1).Trim();
-                var openingAngleBracketIndex = gitIdentity.IndexOf('<');
-                if (openingAngleBracketIndex == -1) throw new NotImplementedException("Missing '<' in authors file");
-                if (gitIdentity[^1] != '>') throw new NotImplementedException("Line does not end with '>' in authors file");
+            var name = gitIdentity[..openingAngleBracketIndex].TrimEnd().ToString();
+            var email = gitIdentity[(openingAngleBracketIndex + 1)..^1].Trim().ToString();
 
-                var name = gitIdentity[..openingAngleBracketIndex].TrimEnd().ToString();
-                var email = gitIdentity[(openingAngleBracketIndex + 1)..^1].Trim().ToString();
+            if (!email.Contains('@')) throw new CommandLineException($"The email address \"{email}\" associated with {tfvcIdentity} in the authors file is not a valid email address.");
 
-                if (email == "email") throw new NotImplementedException("<email> in authors file must be replaced with a valid email address");
-
-                builder.Add(tfvcIdentity, new Identity(name, email));
-            }
+            builder.Add(tfvcIdentity, new Identity(name, email));
         }
 
         return builder.ToImmutable();
@@ -642,5 +653,17 @@ public static class Program
         }
 
         return name.ToString();
+    }
+
+    public static bool FileEndsInNewline(FileStream fileStream)
+    {
+        var streamStartsOnNewLine = true;
+        if (fileStream.Length <= 0) return streamStartsOnNewLine;
+
+        fileStream.Seek(-1, SeekOrigin.End);
+        streamStartsOnNewLine = (char)((byte)fileStream.ReadByte()) == '\n';
+        fileStream.Seek(0, SeekOrigin.Begin);
+
+        return streamStartsOnNewLine;
     }
 }
