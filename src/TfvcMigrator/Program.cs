@@ -668,7 +668,7 @@ public static class Program
 
         var position = fileStream.Position;
         fileStream.Seek(-1, SeekOrigin.End);
-        streamStartsOnNewLine = (char)((byte)fileStream.ReadByte()) == '\n';
+        streamStartsOnNewLine = fileStream.ReadByte() == '\n';
         fileStream.Seek(position, SeekOrigin.Begin);
 
         return streamStartsOnNewLine;
