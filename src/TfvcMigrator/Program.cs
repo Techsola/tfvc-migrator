@@ -253,10 +253,16 @@ public static class Program
 
                     foreach (var (_, parentChangeset, parentBranch) in mappingState.AdditionalParents.Where(t => t.Branch == branch))
                     {
-                        if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
-                            && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                        if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets))
                         {
-                            parents.Add(commit);
+                            if (createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                            {
+                                parents.Add(commit);
+                            }
+                            else
+                            {
+                                throw new InvalidOperationException("Should not be reachable. Should be a single changeset matching parent branch.");
+                            }
                         }
                         else
                         {
