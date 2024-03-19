@@ -261,12 +261,12 @@ public static class Program
                             }
                             else
                             {
-                                throw new InvalidOperationException("Should not be reachable. Should be a single changeset matching parent branch.");
+                                throw new InvalidOperationException($"None of the commits created for the parent changeset {parentChangeset} has the expected branch {parentBranch}.");
                             }
                         }
                         else
                         {
-                            throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
+                            throw new InvalidOperationException($"A commit should have been created for the parent changeset {parentChangeset} before reaching this point.");
                         }
                     }
 
