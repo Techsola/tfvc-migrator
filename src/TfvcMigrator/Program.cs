@@ -253,14 +253,20 @@ public static class Program
 
                     foreach (var (_, parentChangeset, parentBranch) in mappingState.AdditionalParents.Where(t => t.Branch == branch))
                     {
-                        if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets)
-                            && createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                        if (commitsByChangeset.TryGetValue(parentChangeset, out var createdChangesets))
                         {
-                            parents.Add(commit);
+                            if (createdChangesets.SingleOrDefault(c => c.Branch == parentBranch).Commit is { } commit)
+                            {
+                                parents.Add(commit);
+                            }
+                            else
+                            {
+                                throw new InvalidOperationException($"None of the commits created for the parent changeset {parentChangeset} has the expected branch {parentBranch}.");
+                            }
                         }
                         else
                         {
-                            throw new InvalidOperationException("Should not be reachable. Earlier code should have sorted topologically or failed.");
+                            throw new InvalidOperationException($"A commit should have been created for the parent changeset {parentChangeset} before reaching this point.");
                         }
                     }
 
