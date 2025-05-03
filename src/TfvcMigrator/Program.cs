@@ -2,6 +2,7 @@
 using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using LibGit2Sharp;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.VisualStudio.Services.Common;
@@ -26,6 +27,14 @@ public static class Program
             new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
             new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
             new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." },
+            new Option<ImmutableArray<string>>(
+                "--directories",
+                parseArgument: result => result.Tokens.Select(token => token.Value).ToImmutableArray())
+            {
+                Arity = ArgumentArity.OneOrMore,
+                AllowMultipleArgumentsPerToken = true,
+                Description = "If this option is used, only the files within the specified directories (relative to the root path) will be migrated. If a file moves into this filter, the migrated result will appear with no prior history. If a file moves out of this filter, it will appear to be deleted. Wildcards are not currently supported.",
+            },
             new Option<ImmutableArray<RootPathChange>>(
                 "--root-path-changes",
                 parseArgument: result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray())
@@ -65,12 +74,21 @@ public static class Program
         string? outDir = null,
         int? minChangeset = null,
         int? maxChangeset = null,
+        ImmutableArray<string> directories = default,
         ImmutableArray<RootPathChange> rootPathChanges = default,
         string? pat = null)
     {
         try
         {
+            if (directories.IsDefault) directories = ImmutableArray<string>.Empty;
             if (rootPathChanges.IsDefault) rootPathChanges = ImmutableArray<RootPathChange>.Empty;
+
+            directories = ImmutableArray.CreateRange(
+                directories,
+                directory => '/' + Regex.Replace(directory.Trim('/', '\\'), @"[/\\]+", "/"));
+
+            if (directories is [] || directories.Contains("/"))
+                directories = ImmutableArray.Create("");
 
             var outputDirectory = Path.GetFullPath(
                 new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
@@ -90,9 +108,9 @@ public static class Program
 
             using var client = await connection.GetClientAsync<TfvcHttpClient>();
 
-            Console.WriteLine("Downloading changeset and label metadata...");
+            Console.WriteLine("Downloading changeset metadata...");
 
-            var (changesets, allLabels) = await (
+            var changesets = (await Task.WhenAll(directories.Select(directory =>
                 client.GetChangesetsAsync(
                     maxCommentLength: int.MaxValue,
                     top: int.MaxValue,
@@ -100,18 +118,28 @@ public static class Program
                     searchCriteria: new TfvcChangesetSearchCriteria
                     {
                         FollowRenames = true,
-                        ItemPath = rootPath,
+                        ItemPath = rootPath + directory,
                         FromId = minChangeset ?? 0,
                         ToId = maxChangeset ?? 0,
-                    }),
+                    }))).ConfigureAwait(false))
+                .SelectMany(changesets => changesets)
+                .DistinctBy(changeset => changeset.ChangesetId)
+                .OrderBy(changeset => changeset.ChangesetId)
+                .ToList();
+
+            Console.WriteLine("Downloading labels...");
+
+            var allLabels = (await Task.WhenAll(directories.Select(directory =>
                 client.GetLabelsAsync(
-                    new TfvcLabelRequestData
-                    {
-                        MaxItemCount = int.MaxValue,
-                        LabelScope = rootPath,
-                    },
-                    top: int.MaxValue)
-            ).ConfigureAwait(false);
+                new TfvcLabelRequestData
+                {
+                    MaxItemCount = int.MaxValue,
+                    LabelScope = rootPath + directory,
+                },
+                top: int.MaxValue))).ConfigureAwait(false))
+                .SelectMany(labels => labels)
+                .DistinctBy(label => label.Id)
+                .ToList();
 
             var authorsLookup = await LoadAuthors(
                 authors,
@@ -135,14 +163,15 @@ public static class Program
             var commitsByChangeset = new Dictionary<int, List<(Commit Commit, BranchIdentity Branch, bool WasCreatedForChangeset)>>();
 
             await using var mappingStateAndItemsEnumerator =
-                EnumerateMappingStatesAsync(client, rootPathChanges, changesets, initialBranch)
+                EnumerateMappingStatesAsync(client, directories, rootPathChanges, changesets, initialBranch)
                     .SelectAwait(async state => (
                         MappingState: state,
                         // Make no attempt to reason about applying TFS item changes over time. Ask for the full set of files.
                         Items: await DownloadItemsAsync(
                             client,
-                            PathUtils.GetNonOverlappingPaths(
-                                state.BranchMappingsInDependentOperationOrder.Select(branchMapping => branchMapping.Mapping.RootDirectory)),
+                            from branchMapping in state.BranchMappingsInDependentOperationOrder
+                            from directory in directories
+                            select branchMapping.Mapping.RootDirectory + directory,
                             state.Changeset)))
                     .WithLookahead()
                     .GetAsyncEnumerator();
@@ -438,6 +467,7 @@ public static class Program
 
     private static async IAsyncEnumerable<MappingState> EnumerateMappingStatesAsync(
         TfvcHttpClient client,
+        ImmutableArray<string> directories,
         ImmutableArray<RootPathChange> rootPathChanges,
         IReadOnlyList<TfvcChangesetRef> changesets,
         BranchIdentity initialBranch)
@@ -451,7 +481,7 @@ public static class Program
 
         await using var changesetChangesEnumerator = changesets
             .Skip(1)
-            .SelectAwait(changeset => client.GetChangesetChangesAsync(changeset.ChangesetId, top: int.MaxValue - 1))
+            .SelectAwait(changeset => GetChangesAsync(client, changeset.ChangesetId, trunk.Path, directories))
             .WithLookahead()
             .GetAsyncEnumerator();
 
@@ -604,6 +634,36 @@ public static class Program
         }
 
         return builder.ToImmutable();
+    }
+
+    private static async Task<List<TfvcChange>> GetChangesAsync(TfvcHttpClient client, int changesetId, string rootPath, ImmutableArray<string> directories)
+    {
+        var changes = await client.GetChangesetChangesAsync(changesetId, top: int.MaxValue - 1);
+
+        changes.RemoveAll(change =>
+            !ItemPathPassesFilter(change.Item.Path, rootPath, directories)
+            && !ItemPathPassesFilter(change.SourceServerItem, rootPath, directories));
+
+        return changes;
+    }
+
+    private static bool ItemPathPassesFilter(string itemPath, string rootPath, ImmutableArray<string> directories)
+    {
+        if (!PathUtils.IsAbsolute(rootPath))
+            throw new ArgumentException("Root path must be absolute.", nameof(rootPath));
+
+        if (PathUtils.IsOrContains(rootPath, itemPath))
+        {
+            var remainingPath = itemPath.AsSpan(rootPath.Length);
+
+            foreach (var directory in directories)
+            {
+                if (PathUtils.IsOrContains(directory, remainingPath))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static async Task<ImmutableArray<TfvcItem>> DownloadItemsAsync(TfvcHttpClient client, IEnumerable<string> scopePaths, int changeset)
