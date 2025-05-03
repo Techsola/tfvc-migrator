@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TfvcMigrator": {
+      "commandName": "Project",
+      "commandLineArgs": "http://azuredevops/Techsola $/TechsolaLibrary --authors \"C:\\Users\\jmusser\\Source\\authors.txt\" --out-dir C:\\Users\\jmusser\\Source\\Migrated\\Techsola.Data --directories Techsola.Data Techsola.Data.EF6"
+    }
+  }
+}
