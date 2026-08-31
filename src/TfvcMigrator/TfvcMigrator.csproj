@@ -8,8 +8,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
     <Product>TFVC Migrator</Product>
-    <Authors>Technology Solutions Associates</Authors>
-    <Copyright>Copyright © 2020–2023 Technology Solutions Associates</Copyright>
+    <Authors>Joseph N. Musser II</Authors>
+    <Copyright>Copyright © 2020–2026 Joseph N. Musser II</Copyright>
     <AssemblyTitle>TFVC Migrator</AssemblyTitle>
 
     <PublishSingleFile>true</PublishSingleFile>

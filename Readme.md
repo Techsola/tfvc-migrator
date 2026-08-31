@@ -14,11 +14,11 @@ Differences from [https://github.com/git-tfs/git-tfs](https://github.com/git-tfs
 
 ## Support
 
-This tool is offered **as-is** for a notoriously complex problem. We hope (without having a way to tell) that it works for someone else as well as it did for our projects. It might just work in one shot. You might have to be willing to get a little grease on your hands to take it the last step of the way. Issues and pull requests are welcome, but we can’t promise anything.
+This tool is offered **as-is** for a notoriously complex problem. We hope (without having a way to tell) that it works for someone else as well as it did for our projects. It might just work in one shot. You might have to be willing to get a little grease on your hands to take it the last step of the way. Issues and pull requests are welcome.
 
 ## How to use
 
-1. Clone this repository (example: `git clone https://github.com/Techsola/tfvc-migrator`)
+1. Clone this repository (example: `git clone https://github.com/jnm2/tfvc-migrator`)
 2. Navigate to the `src\TfvcMigrator` subdirectory (example: `cd tfvc-migrator\src\TfvcMigrator`)
 3. Type `dotnet run` followed by the arguments below.
 4. For large repositories, expect to wait for a while. You'll get a progress view like this:
