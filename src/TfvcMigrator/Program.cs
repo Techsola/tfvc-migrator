@@ -1,5 +1,4 @@
 ﻿using System.CommandLine;
-using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -15,40 +14,62 @@ public static class Program
 {
     public static Task<int> Main(string[] args)
     {
+        return CreateCommand().Parse(args).InvokeAsync();
+    }
+
+    public static RootCommand CreateCommand()
+    {
+        var projectCollectionUrlArgument = new Argument<string>("project-collection-url") { Description = "The URL of the Azure DevOps project collection." };
+        var rootPathArgument = new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." };
+        var authorsOption = new Option<string>("--authors")
+        {
+            Required = true,
+            Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com> Auto-generates file at provided path with placeholders if not found, eg: DOMAIN\\John = John Doe <email>",
+        };
+        var outDirOption = new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." };
+        var minChangesetOption = new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." };
+        var maxChangesetOption = new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." };
+        var directoriesOption = new Option<ImmutableArray<string>>("--directories")
+        {
+            CustomParser = result => result.Tokens.Select(token => token.Value).ToImmutableArray(),
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = true,
+            Description = "If this option is used, only the files within the specified directories (relative to the root path) will be migrated. If a file moves into this filter, the migrated result will appear with no prior history. If a file moves out of this filter, it will appear to be deleted. Wildcards are not currently supported.",
+        };
+        var rootPathChangesOption = new Option<ImmutableArray<RootPathChange>>("--root-path-changes")
+        {
+            CustomParser = result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray(),
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = true,
+            Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset.",
+        };
+        var patOption = new Option<string?>("--pat") { Description = "Personal access token, required to access TFVC repositories hosted on Azure DevOps Services. If not provided, default client credentials will be used which are only suitable for repositories hosted on Azure DevOps Server on-premises." };
+
         var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
         {
-            new Argument<Uri>("project-collection-url") { Description = "The URL of the Azure DevOps project collection." },
-            new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." },
-            new Option<string>("--authors")
-            {
-                IsRequired = true,
-                Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com> Auto-generates file at provided path with placeholders if not found, eg: DOMAIN\\John = John Doe <email>",
-            },
-            new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
-            new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
-            new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." },
-            new Option<ImmutableArray<string>>(
-                "--directories",
-                parseArgument: result => result.Tokens.Select(token => token.Value).ToImmutableArray())
-            {
-                Arity = ArgumentArity.OneOrMore,
-                AllowMultipleArgumentsPerToken = true,
-                Description = "If this option is used, only the files within the specified directories (relative to the root path) will be migrated. If a file moves into this filter, the migrated result will appear with no prior history. If a file moves out of this filter, it will appear to be deleted. Wildcards are not currently supported.",
-            },
-            new Option<ImmutableArray<RootPathChange>>(
-                "--root-path-changes",
-                parseArgument: result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray())
-            {
-                Arity = ArgumentArity.OneOrMore,
-                AllowMultipleArgumentsPerToken = true,
-                Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset.",
-            },
-            new Option<string?>("--pat") { Description = "Personal access token, required to access TFVC repositories hosted on Azure DevOps Services. If not provided, default client credentials will be used which are only suitable for repositories hosted on Azure DevOps Server on-premises." },
+            projectCollectionUrlArgument,
+            rootPathArgument,
+            authorsOption,
+            outDirOption,
+            minChangesetOption,
+            maxChangesetOption,
+            directoriesOption,
+            rootPathChangesOption,
+            patOption,
         };
 
-        command.Handler = CommandHandler.Create(CommandVerifier.Intercept(MigrateAsync));
+        command.SetAction(parseResult => MigrateAsync(
+            parseResult.GetRequiredValue(projectCollectionUrlArgument),
+            parseResult.GetRequiredValue(rootPathArgument),
+            parseResult.GetRequiredValue(authorsOption),
+            parseResult.GetValue(outDirOption),
+            parseResult.GetValue(minChangesetOption),
+            parseResult.GetValue(maxChangesetOption),
+            parseResult.GetValue(directoriesOption),
+            parseResult.GetValue(rootPathChangesOption),
+            parseResult.GetValue(patOption)));
 
-        return command.InvokeAsync(args);
+        return command;
     }
 
     private static RootPathChange ParseRootPathChange(string token)
@@ -68,7 +89,7 @@ public static class Program
     }
 
     public static async Task<int> MigrateAsync(
-        Uri projectCollectionUrl,
+        string projectCollectionUrl,
         string rootPath,
         string authors,
         string? outDir = null,
@@ -90,8 +111,11 @@ public static class Program
             if (directories is [] || directories.Contains("/"))
                 directories = ImmutableArray.Create("");
 
+            if (!Uri.TryCreate(projectCollectionUrl, UriKind.Absolute, out var projectCollectionUri))
+                throw new CommandLineException($"Invalid project collection URL: {projectCollectionUrl}");
+
             var outputDirectory = Path.GetFullPath(
-                new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUrl.Segments.LastOrDefault() }
+                new[] { outDir, PathUtils.GetLeaf(rootPath), projectCollectionUri.Segments.LastOrDefault() }
                     .First(name => !string.IsNullOrEmpty(name))!);
 
             using var repo = InitRepository(outputDirectory);
@@ -101,7 +125,7 @@ public static class Program
             Console.WriteLine("Connecting...");
 
             using var connection = new VssConnection(
-                projectCollectionUrl,
+                projectCollectionUri,
                 pat is not null
                     ? new VssBasicCredential(userName: null, password: pat)
                     : new VssCredentials());
