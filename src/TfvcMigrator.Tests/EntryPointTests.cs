@@ -1,9 +1,9 @@
 ﻿namespace TfvcMigrator.Tests;
 
-public static class EntryPointTests
+public class EntryPointTests
 {
     [Test]
-    public static void No_System_CommandLine_failure_for_minimal_arguments()
+    public void No_System_CommandLine_failure_for_minimal_arguments()
     {
         var parseResult = Program.CreateCommand().Parse(
             new[]
@@ -20,7 +20,7 @@ public static class EntryPointTests
     }
 
     [Test]
-    public static void No_System_CommandLine_failure_for_all_arguments()
+    public void No_System_CommandLine_failure_for_all_arguments()
     {
         var parseResult = Program.CreateCommand().Parse(
             new[]

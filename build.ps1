@@ -25,5 +25,5 @@ if ($LastExitCode) { exit 1 }
 # Test
 Remove-Item -Recurse -Force $testResultsDir -ErrorAction Ignore
 
-dotnet test --no-build --logger trx --results-directory $testResultsDir /bl:$logsDir\test.binlog @dotnetArgs
+dotnet test --no-build --report-trx --results-directory $testResultsDir /bl:$logsDir\test.binlog @dotnetArgs
 if ($LastExitCode) { exit 1 }
