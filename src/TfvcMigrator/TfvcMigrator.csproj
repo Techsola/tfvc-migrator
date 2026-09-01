@@ -23,6 +23,7 @@
   <ItemGroup>
     <PackageReference Include="LibGit2Sharp" Version="0.32.0" />
     <PackageReference Include="Microsoft.TeamFoundationServer.Client" Version="19.225.2" />
+    <!-- Microsoft.TeamFoundationServer.Client pulls in a vulnerable version -->
     <PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
     <PackageReference Include="System.CommandLine" Version="2.0.11" />
     <PackageReference Include="TaskTupleAwaiter" Version="2.3.0" />
