@@ -1,54 +1,127 @@
-﻿using System.CommandLine;
-using System.CommandLine.NamingConventionBinder;
+﻿using System.ComponentModel;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using LibGit2Sharp;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.VisualStudio.Services.Common;
 using Microsoft.VisualStudio.Services.WebApi;
+using Spectre.Console;
+using Spectre.Console.Cli;
 using TfvcMigrator.Operations;
 
 namespace TfvcMigrator;
 
 public static class Program
 {
-    public static Task<int> Main(string[] args)
+    public static int Main(string[] args)
     {
-        var command = new RootCommand("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")
+        return CreateCommandApp().Run(NormalizeMultiValueOptions(args));
+    }
+
+    public static CommandApp<MigrateCommand> CreateCommandApp(IAnsiConsole? console = null)
+    {
+        var app = new CommandApp<MigrateCommand>();
+
+        app.Configure(config =>
         {
-            new Argument<Uri>("project-collection-url") { Description = "The URL of the Azure DevOps project collection." },
-            new Argument<string>("root-path") { Description = "The source path within the TFVC repository to migrate as a Git repository." },
-            new Option<string>("--authors")
-            {
-                IsRequired = true,
-                Description = "Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com> Auto-generates file at provided path with placeholders if not found, eg: DOMAIN\\John = John Doe <email>",
-            },
-            new Option<string?>("--out-dir") { Description = "The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory." },
-            new Option<int?>("--min-changeset") { Description = "The changeset defining the initial commit. Defaults to the first changeset under the given source path." },
-            new Option<int?>("--max-changeset") { Description = "The last changeset to migrate. Defaults to the most recent changeset under the given source path." },
-            new Option<ImmutableArray<string>>(
-                "--directories",
-                parseArgument: result => result.Tokens.Select(token => token.Value).ToImmutableArray())
-            {
-                Arity = ArgumentArity.OneOrMore,
-                AllowMultipleArgumentsPerToken = true,
-                Description = "If this option is used, only the files within the specified directories (relative to the root path) will be migrated. If a file moves into this filter, the migrated result will appear with no prior history. If a file moves out of this filter, it will appear to be deleted. Wildcards are not currently supported.",
-            },
-            new Option<ImmutableArray<RootPathChange>>(
-                "--root-path-changes",
-                parseArgument: result => result.Tokens.Select(token => ParseRootPathChange(token.Value)).ToImmutableArray())
-            {
-                Arity = ArgumentArity.OneOrMore,
-                AllowMultipleArgumentsPerToken = true,
-                Description = "Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset.",
-            },
-            new Option<string?>("--pat") { Description = "Personal access token, required to access TFVC repositories hosted on Azure DevOps Services. If not provided, default client credentials will be used which are only suitable for repositories hosted on Azure DevOps Server on-premises." },
-        };
+            config.SetApplicationName(typeof(Program).Assembly.GetName().Name!);
+            config.SetApplicationVersion(typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
+            config.UseStrictParsing();
 
-        command.Handler = CommandHandler.Create(CommandVerifier.Intercept(MigrateAsync));
+            if (console is not null)
+                config.ConfigureConsole(console);
+        });
 
-        return command.InvokeAsync(args);
+        return app;
+    }
+
+    private static string[] NormalizeMultiValueOptions(string[] args)
+    {
+        var normalizedArgs = new List<string>(args.Length);
+        var multiValueOptions = new HashSet<string>(StringComparer.Ordinal) { "--directories", "--root-path-changes" };
+
+        for (var index = 0; index < args.Length; index++)
+        {
+            var argument = args[index];
+            normalizedArgs.Add(argument);
+
+            if (!multiValueOptions.Contains(argument))
+                continue;
+
+            while (index + 1 < args.Length && !args[index + 1].StartsWith("--", StringComparison.Ordinal))
+            {
+                normalizedArgs.Add(args[++index]);
+
+                if (index + 1 < args.Length && !args[index + 1].StartsWith("--", StringComparison.Ordinal))
+                    normalizedArgs.Add(argument);
+            }
+        }
+
+        return normalizedArgs.ToArray();
+    }
+
+    [Description("Migrates TFVC source history to idiomatic Git history while preserving branch topology.")]
+    public sealed class MigrateCommand : Command<MigrateSettings>
+    {
+        protected override int Execute(CommandContext context, MigrateSettings settings, CancellationToken cancellationToken) =>
+            MigrateAsync(
+                new Uri(settings.ProjectCollectionUrl, UriKind.RelativeOrAbsolute),
+                settings.RootPath,
+                settings.Authors,
+                settings.OutDir,
+                settings.MinChangeset,
+                settings.MaxChangeset,
+                settings.Directories.ToImmutableArray(),
+                settings.RootPathChanges.Select(ParseRootPathChange).ToImmutableArray(),
+                settings.Pat).GetAwaiter().GetResult();
+    }
+
+    public sealed class MigrateSettings : CommandSettings
+    {
+        [CommandArgument(0, "<project-collection-url>")]
+        [Description("The URL of the Azure DevOps project collection.")]
+        public string ProjectCollectionUrl { get; init; } = null!;
+
+        [CommandArgument(1, "<root-path>")]
+        [Description("The source path within the TFVC repository to migrate as a Git repository.")]
+        public string RootPath { get; init; } = null!;
+
+        [CommandOption("--authors <PATH>")]
+        [Description("Path to an authors file with lines mapping TFVC usernames to Git authors, e.g.: DOMAIN\\John = John Doe <john@doe.com> Auto-generates file at provided path with placeholders if not found, eg: DOMAIN\\John = John Doe <email>")]
+        public string Authors { get; init; } = null!;
+
+        [CommandOption("--out-dir <DIRECTORY>")]
+        [Description("The directory path at which to create a new Git repository. Defaults to the last segment in the root path under the current directory.")]
+        public string? OutDir { get; init; }
+
+        [CommandOption("--min-changeset <CHANGESET>")]
+        [Description("The changeset defining the initial commit. Defaults to the first changeset under the given source path.")]
+        public int? MinChangeset { get; init; }
+
+        [CommandOption("--max-changeset <CHANGESET>")]
+        [Description("The last changeset to migrate. Defaults to the most recent changeset under the given source path.")]
+        public int? MaxChangeset { get; init; }
+
+        [CommandOption("--directories <DIRECTORY>")]
+        [Description("If this option is used, only the files within the specified directories (relative to the root path) will be migrated. If a file moves into this filter, the migrated result will appear with no prior history. If a file moves out of this filter, it will appear to be deleted. Wildcards are not currently supported.")]
+        public string[] Directories { get; init; } = [];
+
+        [CommandOption("--root-path-changes <CHANGESET-PATH>")]
+        [Description("Followed by one or more arguments with the format CS1234:$/New/Path. Changes the path that is mapped as the Git repository root to a new path during a specified changeset.")]
+        public string[] RootPathChanges { get; init; } = [];
+
+        [CommandOption("--pat <TOKEN>")]
+        [Description("Personal access token, required to access TFVC repositories hosted on Azure DevOps Services. If not provided, default client credentials will be used which are only suitable for repositories hosted on Azure DevOps Server on-premises.")]
+        public string? Pat { get; init; }
+
+        public override ValidationResult Validate()
+        {
+            return string.IsNullOrEmpty(Authors)
+                ? ValidationResult.Error("Option '--authors' is required.")
+                : base.Validate();
+        }
     }
 
     private static RootPathChange ParseRootPathChange(string token)

@@ -1,29 +1,32 @@
-﻿using System.Reflection;
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
+using Spectre.Console.Testing;
 
 namespace TfvcMigrator.Tests;
 
 public static class ReadmeTests
 {
     [Test]
-    public static async Task Command_line_arguments_section_is_up_to_date()
+    public static void Command_line_arguments_section_is_up_to_date()
     {
-        var helpOutput = (await TestUtils.CaptureConsoleOutputAsync(async () => await Program.Main(new[] { "--help" })))
-            .Replace(Assembly.GetEntryAssembly()!.GetName().Name!, typeof(Program).Assembly.GetName().Name);
+        var console = new TestConsole();
+        console.Profile.Width = 100;
 
-        var expectedReadmeCodeBlock = Regex.Replace(helpOutput, @"\ADescription:\s*\n[^\n]*\n\s*\n", "");
+        Program.CreateCommandApp(console).Run(["--help"]);
+
+        var helpOutput = console.Output.TrimLines().Trim();
+        var expectedReadmeCodeBlock = Regex.Replace(helpOutput, @"\ADESCRIPTION:(\r?\n[^\r\n]+)*(\r?\n){2}", "", RegexOptions.IgnoreCase);
 
         var readmeContents = File.ReadAllText(Path.Join(TestUtils.DetectSolutionDirectory(), "Readme.md"));
         var actualReadmeCodeBlock = Regex.Match(readmeContents, @"^## Command-line arguments(?:\s*\n)+```\s*\n(?<contents>.*)\s*\n```", RegexOptions.Singleline | RegexOptions.Multiline).Groups["contents"].Value;
 
-        if (Normalize(actualReadmeCodeBlock) != Normalize(expectedReadmeCodeBlock))
+        if (actualReadmeCodeBlock.NormalizeLineEndings() != expectedReadmeCodeBlock.NormalizeLineEndings())
         {
-            Assert.Fail("Update the ‘Command-line arguments’ section in Readme.md using the program output for --help.");
+            Assert.Fail($"""
+                Update the ‘Command-line arguments’ section in Readme.md with the following exact contents:
+                -----
+                {expectedReadmeCodeBlock}
+                -----
+                """);
         }
-    }
-
-    private static string Normalize(string possiblyWrappedText)
-    {
-        return Regex.Replace(possiblyWrappedText.Trim(), @"\s+", " ");
     }
 }

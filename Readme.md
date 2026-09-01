@@ -29,38 +29,43 @@ This tool is offered **as-is** for a notoriously complex problem. We hope (witho
 ## Command-line arguments
 
 ```
-Usage:
-  TfvcMigrator <project-collection-url> <root-path> [options]
+USAGE:
+    TfvcMigrator <project-collection-url> <root-path> [OPTIONS]
 
-Arguments:
-  <project-collection-url>  The URL of the Azure DevOps project collection.
-  <root-path>               The source path within the TFVC repository to migrate as a Git repository.
+ARGUMENTS:
+    <project-collection-url>    The URL of the Azure DevOps project collection
+    <root-path>                 The source path within the TFVC repository to migrate as a Git
+                                repository
 
-Options:
-  --authors <authors> (REQUIRED)           Path to an authors file with lines mapping TFVC usernames to
-                                           Git authors, e.g.: DOMAIN\John = John Doe <john@doe.com>
-                                           Auto-generates file at provided path with placeholders if
-                                           not found, eg: DOMAIN\John = John Doe <email>
-  --out-dir <out-dir>                      The directory path at which to create a new Git repository.
-                                           Defaults to the last segment in the root path under the
-                                           current directory.
-  --min-changeset <min-changeset>          The changeset defining the initial commit. Defaults to the
-                                           first changeset under the given source path.
-  --max-changeset <max-changeset>          The last changeset to migrate. Defaults to the most recent
-                                           changeset under the given source path.
-  --directories <directories>              If this option is used, only the files within the specified
-                                           directories (relative to the root path) will be migrated. If
-                                           a file moves into this filter, the migrated result will
-                                           appear with no prior history. If a file moves out of this
-                                           filter, it will appear to be deleted. Wildcards are not
-                                           currently supported.
-  --root-path-changes <root-path-changes>  Followed by one or more arguments with the format
-                                           CS1234:$/New/Path. Changes the path that is mapped as the Git
-                                           repository root to a new path during a specified changeset.
-  --pat <pat>                              Personal access token, required to access TFVC repositories
-                                           hosted on Azure DevOps Services. If not provided, default
-                                           client credentials will be used which are only suitable for
-                                           repositories hosted on Azure DevOps Server on-premises.
-  --version                                Show version information
-  -?, -h, --help                           Show help and usage information
+OPTIONS:
+    -h, --help                                  Prints help information
+    -v, --version                               Prints version information
+        --authors <PATH>                        Path to an authors file with lines mapping TFVC
+                                                usernames to Git authors, e.g.: DOMAIN\John = John
+                                                Doe <john@doe.com> Auto-generates file at provided
+                                                path with placeholders if not found, eg: DOMAIN\John
+                                                = John Doe <email>
+        --out-dir <DIRECTORY>                   The directory path at which to create a new Git
+                                                repository. Defaults to the last segment in the root
+                                                path under the current directory
+        --min-changeset <CHANGESET>             The changeset defining the initial commit. Defaults
+                                                to the first changeset under the given source path
+        --max-changeset <CHANGESET>             The last changeset to migrate. Defaults to the most
+                                                recent changeset under the given source path
+        --directories <DIRECTORY>               If this option is used, only the files within the
+                                                specified directories (relative to the root path)
+                                                will be migrated. If a file moves into this filter,
+                                                the migrated result will appear with no prior
+                                                history. If a file moves out of this filter, it will
+                                                appear to be deleted. Wildcards are not currently
+                                                supported
+        --root-path-changes <CHANGESET-PATH>    Followed by one or more arguments with the format
+                                                CS1234:$/New/Path. Changes the path that is mapped
+                                                as the Git repository root to a new path during a
+                                                specified changeset
+        --pat <TOKEN>                           Personal access token, required to access TFVC
+                                                repositories hosted on Azure DevOps Services. If not
+                                                provided, default client credentials will be used
+                                                which are only suitable for repositories hosted on
+                                                Azure DevOps Server on-premises
 ```

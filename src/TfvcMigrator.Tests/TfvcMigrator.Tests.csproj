@@ -18,6 +18,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="NUnit3TestAdapter" Version="4.4.2" />
+    <PackageReference Include="Spectre.Console.Cli.Testing" Version="0.55.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.5.0" />
     <PackageReference Include="Shouldly" Version="4.1.0" />
   </ItemGroup>
