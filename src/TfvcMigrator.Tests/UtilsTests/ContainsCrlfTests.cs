@@ -1,11 +1,11 @@
 ﻿namespace TfvcMigrator.Tests.UtilsTests;
 
-public static class ContainsCrlfTests
+public class ContainsCrlfTests
 {
     private const byte CR = (byte)'\r', LF = (byte)'\n';
 
     [Test]
-    public static void False_for_only_CR()
+    public void False_for_only_CR()
     {
         using var stream = new MemoryStream(new[] { CR, CR });
 
@@ -13,7 +13,7 @@ public static class ContainsCrlfTests
     }
 
     [Test]
-    public static void False_for_only_LF()
+    public void False_for_only_LF()
     {
         using var stream = new MemoryStream(new[] { LF, LF });
 
@@ -21,7 +21,7 @@ public static class ContainsCrlfTests
     }
 
     [Test]
-    public static void Detects_CRLF_following_CR()
+    public void Detects_CRLF_following_CR()
     {
         using var stream = new MemoryStream(new[] { CR, CR, LF });
 

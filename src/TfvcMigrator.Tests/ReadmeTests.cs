@@ -1,15 +1,24 @@
-﻿using System.Reflection;
+﻿using System.CommandLine;
+using System.CommandLine.Help;
 using System.Text.RegularExpressions;
 
 namespace TfvcMigrator.Tests;
 
-public static class ReadmeTests
+public class ReadmeTests
 {
     [Test]
-    public static async Task Command_line_arguments_section_is_up_to_date()
+    public async Task Command_line_arguments_section_is_up_to_date()
     {
-        var helpOutput = (await TestUtils.CaptureConsoleOutputAsync(async () => await Program.Main(new[] { "--help" })))
-            .Replace(Assembly.GetEntryAssembly()!.GetName().Name!, typeof(Program).Assembly.GetName().Name);
+        var command = Program.CreateCommand();
+
+        // Pin the width so that Readme.md does not depend on the terminal the tests happen to run in.
+        ((HelpAction)command.Options.OfType<HelpOption>().Single().Action!).MaxWidth = 100;
+
+        var output = new StringWriter();
+        await command.Parse(new[] { "--help" }).InvokeAsync(new InvocationConfiguration { Output = output });
+
+        var helpOutput = output.ToString()
+            .Replace(System.Reflection.Assembly.GetEntryAssembly()!.GetName().Name!, typeof(Program).Assembly.GetName().Name);
 
         var expectedReadmeCodeBlock = Regex.Replace(helpOutput, @"\ADescription:\s*\n[^\n]*\n\s*\n", "");
 
